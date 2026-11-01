@@ -90,3 +90,132 @@ inline PressureExtrema computePressureExtremaKokkos(const arrayReal& pressure,
           std::max(std::abs(extrema.min_val), std::abs(extrema.max_val))};
 }
 #endif  // USE_KOKKOS
+
+struct PressureMeanVariance
+{
+  double mean_pressure;
+  double pressure_variance;
+};
+
+// Constant-size state, reusable for field nodes or successive receiver samples.
+struct WelfordState
+{
+  std::size_t count;
+  double mean;
+  double m2;  // Corrected sum of squared deviations; population variance is m2/count.
+  bool all_finite;
+
+  PROXY_HOST_DEVICE
+  WelfordState() : count(0), mean(0), m2(0), all_finite(true) {}
+
+  PROXY_HOST_DEVICE
+  void update(double value)
+  {
+#ifdef USE_KOKKOS
+    const bool finite = Kokkos::isfinite(value);
+#else
+    const bool finite = std::isfinite(value);
+#endif
+    // Record invalid input instead of throwing from code that can run on a GPU.
+    if (!finite)
+    {
+      all_finite = false;
+      return;
+    }
+
+    ++count;
+    const double delta = value - mean;
+    mean += delta / static_cast<double>(count);
+    m2 += delta * (value - mean);
+  }
+
+  PROXY_HOST_DEVICE
+  void merge(const WelfordState& other)
+  {
+    const bool finite = all_finite && other.all_finite;
+    // An empty state is the reduction identity; retain any invalid-input flag.
+    if (other.count == 0)
+    {
+      all_finite = finite;
+      return;
+    }
+    if (count == 0)
+    {
+      *this = other;
+      all_finite = finite;
+      return;
+    }
+
+    const std::size_t combined_count = count + other.count;
+    const double delta = other.mean - mean;
+    const double other_weight =
+        static_cast<double>(other.count) / static_cast<double>(combined_count);
+    // Account for the different group means when combining partial variances.
+    m2 += other.m2 + delta * delta * static_cast<double>(count) * other_weight;
+    mean += delta * other_weight;
+    count = combined_count;
+    all_finite = finite;
+  }
+};
+
+// Host-side validation and final division, matching NumPy's ddof=0 convention.
+inline PressureMeanVariance finalizePressureMeanVariance(const WelfordState& state)
+{
+  if (!state.all_finite)
+    throw std::invalid_argument("Pressure must be finite");
+  if (state.count == 0)
+    throw std::invalid_argument("No pressure samples have been received");
+  return {state.mean, state.m2 / static_cast<double>(state.count)};
+}
+
+inline PressureMeanVariance computePressureMeanVarianceCPU(const arrayReal& pressure,
+                                                         int timeIndex)
+{
+  validatePressureField(pressure, timeIndex);
+#ifdef USE_KOKKOS
+  Kokkos::fence();  // Complete pending kernels before traversing the field on the host.
+#endif
+  WelfordState state;
+  for (std::size_t node = 0; node < pressure.extent(0); ++node)
+    state.update(pressure(node, timeIndex));
+  return finalizePressureMeanVariance(state);
+}
+
+#ifdef USE_KOKKOS
+// Custom reduction: each worker updates a local state, then Kokkos joins the states.
+struct PressureWelfordReduction
+{
+  using value_type = WelfordState;
+
+  arrayReal field;
+  int time_index;
+
+  PROXY_HOST_DEVICE
+  void init(value_type& state) const { state = value_type(); }
+
+  PROXY_HOST_DEVICE
+  void join(value_type& destination, const value_type& source) const
+  {
+    destination.merge(source);
+  }
+
+  PROXY_HOST_DEVICE
+  void operator()(const std::size_t node, value_type& state) const
+  {
+    state.update(field(node, time_index));
+  }
+};
+
+inline PressureMeanVariance computePressureMeanVarianceKokkos(const arrayReal& pressure,
+                                                            int timeIndex)
+{
+  validatePressureField(pressure, timeIndex);
+  WelfordState state;
+  Kokkos::parallel_reduce(
+      "PressureMeanVariance",
+      Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>(0, pressure.extent(0)),
+      PressureWelfordReduction{pressure, timeIndex}, state);
+  Kokkos::fence();  // Validate and finalize the reduced state on the host.
+  return finalizePressureMeanVariance(state);
+}
+#endif  // USE_KOKKOS
