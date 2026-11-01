@@ -6,6 +6,7 @@
 //************************************************************************
 
 #include "sem_proxy.h"
+#include "pressure_statistics.h"
 
 #include <cartesian_struct_builder.h>
 #include <cartesian_unstruct_builder.h>
@@ -21,12 +22,27 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 
 using namespace SourceAndReceiverUtils;
 
+// Shared field names for snapshot and receiver results, matching analyze.py.
+static void writePressureStatistics(std::ostream& output,
+                                   const PressureExtrema& extrema,
+                                   const PressureMeanVariance& moments)
+{
+  output << "        \"minimum_pressure\": " << extrema.minimum_pressure << ",\n"
+         << "        \"maximum_pressure\": " << extrema.maximum_pressure << ",\n"
+         << "        \"maximum_absolute_pressure\": "
+         << extrema.maximum_absolute_pressure << ",\n"
+         << "        \"mean_pressure\": " << moments.mean_pressure << ",\n"
+         << "        \"pressure_variance\": " << moments.pressure_variance << "\n";
+}
+
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
-  is_snapshots_ = opt.is_snapshots_;
+  is_in_situ_ = opt.mode == "in-situ";
+  is_snapshots_ = opt.is_snapshots_ && !is_in_situ_;
   snap_time_interval_ = opt.snap_time_interval_;
   snap_folder_ = opt.snap_folder_;
 
@@ -160,6 +176,9 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
     dt_ = opt.dt;
   }
   timemax_ = opt.timemax;
+  if (is_in_situ_ && (!std::isfinite(dt_) || dt_ <= 0 ||
+                     !std::isfinite(timemax_) || timemax_ < dt_))
+    throw std::runtime_error("In-situ statistics require a finite positive dt and timemax >= dt");
   num_sample_ = timemax_ / dt_;
 
   m_solver = SolverFactory::createSolver(methodType, implemType, meshType,
@@ -189,9 +208,33 @@ void SEMproxy::run()
 {
   using Clock = std::chrono::steady_clock;
   metrics_ = {};
+  metrics_.in_situ = is_in_situ_;
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
+
+  std::ofstream statistics;
+  const char* statistics_path = "statistics_in-situ.json";
+  bool first_snapshot = true;
+  PressureExtrema global_extrema{};
+  std::vector<PressureExtrema> receiver_extrema;
+  std::vector<WelfordState> receiver_moments;
+  std::vector<float> receiver_pressures;
+  if (is_in_situ_)
+  {
+    // O(receivers) storage, independent of the number of simulated time steps.
+    receiver_extrema.resize(receiver_coords_.size());
+    receiver_moments.resize(receiver_coords_.size());
+    receiver_pressures.resize(receiver_coords_.size());
+    const auto startWriteTime = Clock::now();
+    statistics.open(statistics_path);
+    if (!statistics) throw std::runtime_error("Cannot open in-situ statistics file");
+    statistics << std::setprecision(17)
+               << "{\n  \"snapshots\": {\n    \"per_snapshot\": [";
+    if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+    metrics_.statistics_write_seconds +=
+        std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+  }
 
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
@@ -202,7 +245,48 @@ void SEMproxy::run()
     metrics_.compute_seconds +=
         std::chrono::duration<double>(Clock::now() - startComputeTime).count();
     
-    if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+    if (is_in_situ_ && indexTimeSample % snap_time_interval_ == 0)
+    {
+      const auto startAnalysisTime = Clock::now();
+      // Read the solver's current buffer directly, including in Vector builds.
+#ifdef USE_KOKKOS
+      const auto extrema = computePressureExtremaKokkos(solverData.m_pnGlobal, i1);
+      const auto moments = computePressureMeanVarianceKokkos(solverData.m_pnGlobal, i1);
+#else
+      const auto extrema = computePressureExtremaCPU(solverData.m_pnGlobal, i1);
+      const auto moments = computePressureMeanVarianceCPU(solverData.m_pnGlobal, i1);
+#endif
+      if (first_snapshot)
+      {
+        global_extrema = extrema;
+      }
+      else
+      {
+        global_extrema.minimum_pressure =
+            std::min(global_extrema.minimum_pressure, extrema.minimum_pressure);
+        global_extrema.maximum_pressure =
+            std::max(global_extrema.maximum_pressure, extrema.maximum_pressure);
+        global_extrema.maximum_absolute_pressure =
+            std::max(global_extrema.maximum_absolute_pressure, extrema.maximum_absolute_pressure);
+      }
+      metrics_.snapshot_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+
+      // Stream reduced results instead of retaining a history of pressure fields.
+      const auto startWriteTime = Clock::now();
+      statistics << (first_snapshot ? "\n" : ",\n")
+                 << "      {\n        \"timestep_index\": " << indexTimeSample << ",\n"
+                 << "        \"time_seconds\": "
+                 << (indexTimeSample + 1) * static_cast<double>(dt_) << ",\n"
+                 << "        \"node_count\": " << m_mesh->getNumberOfNodes() << ",\n";
+      writePressureStatistics(statistics, extrema, moments);
+      statistics << "      }";
+      if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+      metrics_.statistics_write_seconds +=
+          std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+      first_snapshot = false;
+    }
+    else if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
     {
       const auto startSnapshotTime = Clock::now();
       // Vector : le solveur possède une copie distincte du champ de pression.
@@ -224,7 +308,7 @@ void SEMproxy::run()
                                      solverData.m_pnGlobal, "pnGlobal");
     }
 
-    // Save pressure at receiver
+    // Interpolation is common to both workflows; analysis is timed separately.
     startComputeTime = Clock::now();
     const int order = m_mesh->getOrder();
 
@@ -246,7 +330,37 @@ void SEMproxy::run()
         }
       }
         }
-       pnAtReceiver(r, indexTimeSample) = varnp1;
+      if (is_in_situ_)
+        receiver_pressures[r] = varnp1;
+      else
+        pnAtReceiver(r, indexTimeSample) = varnp1;
+    }
+
+    if (is_in_situ_)
+    {
+      metrics_.compute_seconds +=
+          std::chrono::duration<double>(Clock::now() - startComputeTime).count();
+      const auto startAnalysisTime = Clock::now();
+      for (std::size_t r = 0; r < receiver_coords_.size(); ++r)
+      {
+        const double value = receiver_pressures[r];
+        auto& extrema = receiver_extrema[r];
+        if (receiver_moments[r].count == 0)
+        {
+          extrema = {value, value, std::abs(value)};
+        }
+        else
+        {
+          extrema.minimum_pressure = std::min(extrema.minimum_pressure, value);
+          extrema.maximum_pressure = std::max(extrema.maximum_pressure, value);
+          extrema.maximum_absolute_pressure =
+              std::max(extrema.maximum_absolute_pressure, std::abs(value));
+        }
+        receiver_moments[r].update(value);
+      }
+      metrics_.sismogram_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+      startComputeTime = Clock::now();
     }
 
     swap(i1, i2);
@@ -260,32 +374,68 @@ void SEMproxy::run()
   }
 
 
-  const auto startSismogramTime = Clock::now();
-  std::ofstream sismos("sismos.bin", std::ios::binary);
-  if (!sismos) throw std::runtime_error("Cannot open sismos.bin");
-  // Format natif : deux int32 (récepteurs, échantillons), puis pour chaque
-  // échantillon des float32 (temps, pression de chaque récepteur).
-  const std::int32_t dimensions[2] = {
-      static_cast<std::int32_t>(receiver_coords_.size()),
-      static_cast<std::int32_t>(num_sample_)};
-  sismos.write(reinterpret_cast<const char*>(dimensions), sizeof(dimensions));
-  for (int sample = 0; sample < num_sample_; ++sample)
+  if (!is_in_situ_)
+  {
+    const auto startSismogramTime = Clock::now();
+    std::ofstream sismos("sismos.bin", std::ios::binary);
+    if (!sismos) throw std::runtime_error("Cannot open sismos.bin");
+    // Format natif : deux int32 (récepteurs, échantillons), puis pour chaque
+    // échantillon des float32 (temps, pression de chaque récepteur).
+    const std::int32_t dimensions[2] = {
+        static_cast<std::int32_t>(receiver_coords_.size()),
+        static_cast<std::int32_t>(num_sample_)};
+    sismos.write(reinterpret_cast<const char*>(dimensions), sizeof(dimensions));
+    for (int sample = 0; sample < num_sample_; ++sample)
     {
       const float time = (sample + 1) * dt_;
       sismos.write(reinterpret_cast<const char*>(&time), sizeof(time));
       for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
-        {
-          const float pressure = pnAtReceiver(r, sample);
-          sismos.write(reinterpret_cast<const char*>(&pressure), sizeof(pressure));
-        }
+      {
+        const float pressure = pnAtReceiver(r, sample);
+        sismos.write(reinterpret_cast<const char*>(&pressure), sizeof(pressure));
+      }
     }
-  sismos.close();
-  if (!sismos) throw std::runtime_error("Cannot write sismos.bin");
+    sismos.close();
+    if (!sismos) throw std::runtime_error("Cannot write sismos.bin");
 
-  metrics_.sismogram_write_seconds =
-      std::chrono::duration<double>(Clock::now() - startSismogramTime).count();
-  metrics_.sismogram_mb =
-      static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
+    metrics_.sismogram_write_seconds =
+        std::chrono::duration<double>(Clock::now() - startSismogramTime).count();
+    metrics_.sismogram_mb =
+        static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
+  }
+  else
+  {
+    const auto startAnalysisTime = Clock::now();
+    std::vector<PressureMeanVariance> receiver_results;
+    receiver_results.reserve(receiver_coords_.size());
+    for (const auto& state : receiver_moments)
+      receiver_results.push_back(finalizePressureMeanVariance(state));
+    metrics_.sismogram_analysis_seconds +=
+        std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+
+    const auto startWriteTime = Clock::now();
+    statistics << "\n    ],\n    \"global_extrema\": {\n"
+               << "      \"minimum_pressure\": " << global_extrema.minimum_pressure << ",\n"
+               << "      \"maximum_pressure\": " << global_extrema.maximum_pressure << ",\n"
+               << "      \"maximum_absolute_pressure\": "
+               << global_extrema.maximum_absolute_pressure << "\n"
+               << "    }\n  },\n  \"sismograms\": {\n    \"per_receiver\": [\n";
+    for (std::size_t r = 0; r < receiver_coords_.size(); ++r)
+    {
+      if (r != 0) statistics << ",\n";
+      statistics << "      {\n        \"receiver_index\": " << r << ",\n"
+                 << "        \"sample_count\": " << receiver_moments[r].count << ",\n";
+      writePressureStatistics(statistics, receiver_extrema[r], receiver_results[r]);
+      statistics << "      }";
+    }
+    statistics << "\n    ]\n  }\n}\n";
+    statistics.close();
+    if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+    metrics_.statistics_mb =
+        static_cast<double>(std::filesystem::file_size(statistics_path)) / 1e6;
+    metrics_.statistics_write_seconds +=
+        std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+  }
 
   cout << "------------------------------------------------ " << endl;
   cout << "\n---- Elapsed Compute Time : " << metrics_.compute_seconds
@@ -310,7 +460,8 @@ void SEMproxy::init_arrays()
   pnGlobal =
       allocateArray2D<arrayReal>(m_mesh->getNumberOfNodes(), 2, "pnGlobal");
   const int numberOfReceivers = static_cast<int>(receiver_coords_.size());
-  pnAtReceiver = allocateArray2D<arrayReal>(numberOfReceivers, num_sample_, "pnAtReceiver");
+  if (!is_in_situ_)
+    pnAtReceiver = allocateArray2D<arrayReal>(numberOfReceivers, num_sample_, "pnAtReceiver");
   // Receiver
   rhsElementRcv = allocateVector<vectorInt>(numberOfReceivers, "rhsElementRcv");
   rhsWeightsRcv = allocateArray2D<arrayReal>(

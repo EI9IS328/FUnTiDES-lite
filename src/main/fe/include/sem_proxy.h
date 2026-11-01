@@ -30,6 +30,11 @@ struct SemProxyMetrics
   double sismogram_write_seconds = 0;
   double snapshot_mb = 0;
   double sismogram_mb = 0;
+  bool in_situ = false;
+  double snapshot_analysis_seconds = 0;
+  double sismogram_analysis_seconds = 0;
+  double statistics_write_seconds = 0;
+  double statistics_mb = 0;
 };
 
 /**
@@ -92,6 +97,7 @@ class SEMproxy
 
  private:
   SemProxyMetrics metrics_;
+  bool is_in_situ_ = false;
   int i1 = 0;
   int i2 = 1;
 

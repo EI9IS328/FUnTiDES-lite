@@ -39,9 +39,24 @@ static void saveMetrics(const SemProxyMetrics& metrics)
       "sismograms": {"read_seconds": null, "preparation_seconds": null, "render_seconds": null}
     }
   },
-  "in_situ": null
-}
-)json";
+  "in_situ": )json";
+  if (metrics.in_situ)
+  {
+    output << "{\n"
+           << "    \"snapshots\": {\"analysis_seconds\": "
+           << metrics.snapshot_analysis_seconds << "},\n"
+           << "    \"sismograms\": {\"analysis_seconds\": "
+           << metrics.sismogram_analysis_seconds << "},\n"
+           << "    \"output_file\": {\"write_seconds\": "
+           << metrics.statistics_write_seconds << ", \"size_mb\": "
+           << metrics.statistics_mb << "}\n"
+           << "  }";
+  }
+  else
+  {
+    output << "null";
+  }
+  output << "\n}\n";
   output.close();
   if (!output) throw std::runtime_error("Cannot write metrics.json");
 }
