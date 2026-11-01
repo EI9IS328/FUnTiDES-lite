@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot SEM proxy sismos and horizontal snapshot slices."""
+"""Plot SEM proxy CSV sismos and horizontal binary snapshot slices."""
 
 import argparse
 import csv
@@ -31,9 +31,13 @@ def plot_sismos(csv_path, output):
 
 
 def load_snapshot(path):
-    # CSV columns: node,x,y,z,pressure. The node index is not used for plotting.
-    return np.loadtxt(path, delimiter=",", skiprows=1,
-                      usecols=(1, 2, 3, 4), ndmin=2)
+    # No header: int32 node, then float32 x, y, z, pressure (20 bytes/node).
+    # '=' means native byte order, matching the C++ writer; no padding.
+    node_type = np.dtype([("node", "=i4"), ("values", "=f4", (4,))])
+    size = path.stat().st_size
+    if size == 0 or size % node_type.itemsize != 0:
+        raise ValueError(f"Expected nonempty binary snapshot, 20 bytes/node: {path}")
+    return np.fromfile(path, dtype=node_type)["values"]
 
 
 def edges(centers):
@@ -85,14 +89,25 @@ def main():
     sismos.add_argument("csv", type=Path)
     sismos.add_argument("--output", type=Path, default=Path("sismos.svg"))
     snapshots = commands.add_parser("snapshots")
-    snapshots.add_argument("csv", nargs="+", type=Path)
+    snapshots.add_argument(
+        "directory", type=Path, help="directory containing snapshot_<step>.bin files"
+    )
     snapshots.add_argument("--z", type=float, help="nearest available z plane")
     snapshots.add_argument("--out-dir", type=Path, default=Path("figures"))
     args = parser.parse_args()
     if args.command == "sismos":
         plot_sismos(args.csv, args.output)
     else:
-        plot_snapshots(args.csv, args.z, args.out_dir)
+        if not args.directory.is_dir():
+            parser.error(f"Snapshot directory does not exist: {args.directory}")
+        paths = sorted(
+            (path for path in args.directory.glob("snapshot_*.bin")
+             if path.is_file() and path.stem.split("_")[-1].isdigit()),
+            key=lambda path: int(path.stem.split("_")[-1]),
+        )
+        if not paths:
+            parser.error(f"No snapshot_<step>.bin files found in {args.directory}")
+        plot_snapshots(paths, args.z, args.out_dir)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@
 #include <sstream>
 #include <variant>
 #include <cmath>
+#include <cstdint>
 
 #include <filesystem>
 #include <fstream>
@@ -204,12 +205,20 @@ void SEMproxy::run()
     startOutputTime = system_clock::now();
     
     if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+    {
+      // Vector : le solveur possède une copie distincte du champ de pression.
+      // La recopier ici pour que saveSnapshot lise les résultats calculés.
+      // Kokkos : les vues partagent déjà les données, aucune copie n'est requise.
+#ifdef USE_VECTOR
+      pnGlobal = solverData.m_pnGlobal;
+#endif
       saveSnapshot(indexTimeSample);
+    }
 
     if (indexTimeSample % 50 == 0)
     {
       m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
-                                     pnGlobal, "pnGlobal");
+                                     solverData.m_pnGlobal, "pnGlobal");
     }
 
     // Save pressure at receiver
@@ -228,7 +237,8 @@ void SEMproxy::run()
           int globalNodeOnElement =
               i + j * (order + 1) + k * (order + 1) * (order + 1);
           varnp1 +=
-              pnGlobal(nodeIdx, i1) * rhsWeightsRcv(r, globalNodeOnElement);
+              solverData.m_pnGlobal(nodeIdx, i1) *
+              rhsWeightsRcv(r, globalNodeOnElement);
         }
       }
         }
@@ -478,21 +488,19 @@ float SEMproxy::find_cfl_dt(float cfl_factor)
 void SEMproxy::saveSnapshot(int timestep)
 {
   const auto path = std::filesystem::path(snap_folder_) /
-                    ("snapshot_" + std::to_string(timestep) + ".csv");
-  std::ofstream output(path);
+    ("snapshot_" + std::to_string(timestep) + ".bin");
+  std::ofstream output(path, std::ios::binary);
   if (!output)
     throw std::runtime_error("Cannot open snapshot file: " + path.string());
 
-  output << "node,x,y,z,pressure\n";
-  output << std::setprecision(std::numeric_limits<float>::max_digits10);
-
   for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
     {
-      output << node << ','
-             << m_mesh->nodeCoord(node, 0) << ','
-             << m_mesh->nodeCoord(node, 1) << ','
-             << m_mesh->nodeCoord(node, 2) << ','
-             << pnGlobal(node, i1) << '\n';
+      const std::int32_t nodeId = node;
+      const float values[4] = {m_mesh->nodeCoord(node, 0),
+                               m_mesh->nodeCoord(node, 1),
+                               m_mesh->nodeCoord(node, 2), pnGlobal(node, i1)};
+      output.write(reinterpret_cast<const char*>(&nodeId), sizeof(nodeId));
+      output.write(reinterpret_cast<const char*>(values), sizeof(values));
     }
   
   output.close();
