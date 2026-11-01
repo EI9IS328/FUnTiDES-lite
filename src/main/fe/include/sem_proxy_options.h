@@ -16,6 +16,7 @@ class SemProxyOptions
   std::string implem = "makutu";  // makutu|shiva
   std::string method = "sem";     // sem|dg
   std::string mesh = "cartesian";
+  std::string mode = "ad-hoc";
   float dt = 0.001;
   float timemax = 1.5;
   bool autodt = false;
@@ -34,6 +35,11 @@ class SemProxyOptions
   
   void validate() const
   {
+    if (mode != "ad-hoc" && mode != "in-situ")
+      throw std::runtime_error("mode must be ad-hoc or in-situ");
+    // Remove this guard when the in-situ statistics are integrated.
+    if (mode == "in-situ")
+      throw std::runtime_error("in-situ mode is not implemented yet");
     if (order < 1) throw std::runtime_error("order must be >= 1");
     if (ex <= 0 || ey <= 0 || ez <= 0)
       throw std::runtime_error("ex/ey/ez must be > 0");
@@ -64,6 +70,8 @@ class SemProxyOptions
         "method", "Method: sem|dg", cxxopts::value<std::string>(o.method))(
         "mesh", "Mesh: cartesian|ucartesian",
         cxxopts::value<std::string>(o.mesh))(
+        "mode", "Analysis workflow: ad-hoc (default) | in-situ (not implemented yet)",
+        cxxopts::value<std::string>(o.mode))(
         "dt", "Time step selection in s (default = 0.001s)",
         cxxopts::value<float>(o.dt))(
         "timemax", "Duration of the simulation in s (default = 1.5s)",
