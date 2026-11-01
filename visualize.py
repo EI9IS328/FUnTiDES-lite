@@ -11,25 +11,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from analyze import load_metrics
+
 
 def save_metrics(section, values):
     # Simulation et visualisations partagent le rapport du dossier courant.
     path = Path("metrics.json")
-    if path.exists():
-        metrics = json.loads(path.read_text(encoding="utf-8"))
-    else:
-        metrics = {
-            "simulation": dict.fromkeys((
-                "total_seconds", "compute_seconds", "snapshot_write_seconds",
-                "sismogram_write_seconds", "snapshot_mb", "sismogram_mb",
-            )),
-            "postprocessing": {
-                name: dict.fromkeys((
-                    "read_seconds", "analysis_seconds", "visualization_seconds",
-                )) for name in ("snapshots", "sismos")
-            },
-        }
-    metrics["postprocessing"][section] = values
+    metrics = load_metrics()
+    metrics["ad_hoc"]["visualization"][section] = values
     path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
 
 
@@ -50,7 +39,7 @@ def plot_sismos(bin_path, output):
     values = values.reshape(samples, receivers + 1)
     times = values[:, 0]
     pressures = values[:, 1:]
-    analysis_seconds = perf_counter() - start_analysis
+    preparation_seconds = perf_counter() - start_analysis
 
     start_visualization = perf_counter()
     fig, ax = plt.subplots()
@@ -62,11 +51,11 @@ def plot_sismos(bin_path, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, bbox_inches="tight")
     plt.close(fig)
-    visualization_seconds = perf_counter() - start_visualization
-    save_metrics("sismos", {
+    render_seconds = perf_counter() - start_visualization
+    save_metrics("sismograms", {
         "read_seconds": read_seconds,
-        "analysis_seconds": analysis_seconds,
-        "visualization_seconds": visualization_seconds,
+        "preparation_seconds": preparation_seconds,
+        "render_seconds": render_seconds,
     })
     print(output)
 
@@ -96,7 +85,7 @@ def plot_snapshots(paths, requested_z, out_dir):
     z = levels[np.argmin(abs(levels - (requested_z if requested_z is not None else middle_z)))]
 
     planes = []
-    analysis_seconds = perf_counter() - start_analysis
+    preparation_seconds = perf_counter() - start_analysis
     for index, path in enumerate(paths):
         if index == 0:
             data = first
@@ -115,15 +104,15 @@ def plot_snapshots(paths, requested_z, out_dir):
         pressure = np.full((len(y), len(x)), np.nan)
         pressure[y_index, x_index] = points[:, 3]
         planes.append((path, x, y, pressure))
-        analysis_seconds += perf_counter() - start_analysis
+        preparation_seconds += perf_counter() - start_analysis
 
     start_analysis = perf_counter()
     scale = max(np.nanmax(np.abs(pressure)) for _, _, _, pressure in planes)
     if scale == 0:
         scale = 1
-    analysis_seconds += perf_counter() - start_analysis
+    preparation_seconds += perf_counter() - start_analysis
     out_dir.mkdir(parents=True, exist_ok=True)
-    visualization_seconds = 0.0
+    render_seconds = 0.0
     for path, x, y, pressure in planes:
         start_visualization = perf_counter()
         fig, ax = plt.subplots()
@@ -135,12 +124,12 @@ def plot_snapshots(paths, requested_z, out_dir):
         output = out_dir / f"{path.stem}.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
-        visualization_seconds += perf_counter() - start_visualization
+        render_seconds += perf_counter() - start_visualization
         print(output)
     save_metrics("snapshots", {
         "read_seconds": read_seconds,
-        "analysis_seconds": analysis_seconds,
-        "visualization_seconds": visualization_seconds,
+        "preparation_seconds": preparation_seconds,
+        "render_seconds": render_seconds,
     })
 
 

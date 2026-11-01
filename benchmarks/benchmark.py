@@ -21,9 +21,10 @@ METRICS = {
     "snapshot_mb": ("simulation", "snapshot_mb"),
     "sismogram_mb": ("simulation", "sismogram_mb"),
     **{
-        f"{kind}_{phase}_seconds": ("postprocessing", kind, f"{phase}_seconds")
-        for kind in ("snapshots", "sismos")
-        for phase in ("read", "analysis", "visualization")
+        f"{kind}_{phase}_seconds": ("ad_hoc", "visualization", report_kind, f"{report_phase}_seconds")
+        for kind, report_kind in (("snapshots", "snapshots"), ("sismos", "sismograms"))
+        for phase, report_phase in (("read", "read"), ("analysis", "preparation"),
+                                    ("visualization", "render"))
     },
 }
 
