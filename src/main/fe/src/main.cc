@@ -7,7 +7,35 @@
 #include "sem_proxy.h"
 #include "sem_proxy_options.h"
 
-time_point<system_clock> startInitTime;
+#include <fstream>
+#include <iomanip>
+
+time_point<steady_clock> startInitTime;
+
+static void saveMetrics(const SemProxyMetrics& metrics)
+{
+  std::ofstream output("metrics.json");
+  if (!output) throw std::runtime_error("Cannot open metrics.json");
+  // Un rapport par essai ; une nouvelle simulation réinitialise Python à null.
+  output << std::setprecision(17)
+         << "{\n  \"simulation\": {\n"
+         << "    \"total_seconds\": " << metrics.total_seconds << ",\n"
+         << "    \"compute_seconds\": " << metrics.compute_seconds << ",\n"
+         << "    \"snapshot_write_seconds\": "
+         << metrics.snapshot_write_seconds << ",\n"
+         << "    \"sismogram_write_seconds\": "
+         << metrics.sismogram_write_seconds << ",\n"
+         << "    \"snapshot_mb\": " << metrics.snapshot_mb << ",\n"
+         << "    \"sismogram_mb\": " << metrics.sismogram_mb << "\n"
+         << "  },\n  \"postprocessing\": {\n"
+         << "    \"snapshots\": {\"read_seconds\": null, "
+         << "\"analysis_seconds\": null, \"visualization_seconds\": null},\n"
+         << "    \"sismos\": {\"read_seconds\": null, "
+         << "\"analysis_seconds\": null, \"visualization_seconds\": null}\n"
+         << "  }\n}\n";
+  output.close();
+  if (!output) throw std::runtime_error("Cannot write metrics.json");
+}
 
 void compute(SEMproxy &semsim)
 {
@@ -16,7 +44,7 @@ void compute(SEMproxy &semsim)
   cout << "+================================= \n" << endl;
 
   // start timer
-  time_point<system_clock> startRunTime = system_clock::now();
+  time_point<steady_clock> startRunTime = steady_clock::now();
   semsim.run();
 
   cout << "\n+================================= " << endl;
@@ -25,9 +53,11 @@ void compute(SEMproxy &semsim)
 
   // print timing information
   cout << "Elapsed Initial Time : "
-       << (startRunTime - startInitTime).count() / 1E9 << " seconds." << endl;
-  cout << "Elapsed Compute Time : "
-       << (system_clock::now() - startRunTime).count() / 1E9 << " seconds."
+       << duration<double>(startRunTime - startInitTime).count()
+       << " seconds." << endl;
+  cout << "Elapsed Run Time : "
+       << duration<double>(steady_clock::now() - startRunTime).count()
+       << " seconds."
        << endl;
 };
 
@@ -35,7 +65,8 @@ void compute_loop(SEMproxy &semsim) { compute(semsim); }
 
 int main(int argc, char *argv[])
 {
-  startInitTime = system_clock::now();
+  startInitTime = steady_clock::now();
+  SemProxyMetrics metrics;
 
 #ifdef USE_KOKKOS
   setenv("OMP_PROC_BIND", "spread", 1);
@@ -78,14 +109,19 @@ int main(int argc, char *argv[])
     SEMproxy semsim(opt);
 
     compute_loop(semsim);
+    metrics = semsim.getMetrics();
 
 #ifdef USE_KOKKOS
   }
   Kokkos::finalize();
 #endif
 
+  // Arrêter le temps total avant l'écriture du rapport de mesure lui-même.
+  metrics.total_seconds =
+      duration<double>(steady_clock::now() - startInitTime).count();
+  saveMetrics(metrics);
   cout << "Elapsed TotalExe Time : "
-       << (system_clock::now() - startInitTime).count() / 1E9 << " seconds.\n"
+       << metrics.total_seconds << " seconds.\n"
        << endl;
   return (0);
 }

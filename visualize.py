@@ -2,7 +2,9 @@
 """Plot SEM proxy binary sismos and horizontal binary snapshot slices."""
 
 import argparse
+import json
 from pathlib import Path
+from time import perf_counter
 
 import matplotlib
 matplotlib.use("Agg")
@@ -10,7 +12,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def save_metrics(section, values):
+    # Simulation et visualisations partagent le rapport du dossier courant.
+    path = Path("metrics.json")
+    if path.exists():
+        metrics = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        metrics = {
+            "simulation": dict.fromkeys((
+                "total_seconds", "compute_seconds", "snapshot_write_seconds",
+                "sismogram_write_seconds", "snapshot_mb", "sismogram_mb",
+            )),
+            "postprocessing": {
+                name: dict.fromkeys((
+                    "read_seconds", "analysis_seconds", "visualization_seconds",
+                )) for name in ("snapshots", "sismos")
+            },
+        }
+    metrics["postprocessing"][section] = values
+    path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
+
+
 def plot_sismos(bin_path, output):
+    start_read = perf_counter()
     # Native format: int32 receiver/sample counts, then float32 time + pressures.
     with bin_path.open("rb") as source:
         dimensions = np.fromfile(source, dtype="=i4", count=2)
@@ -19,17 +43,31 @@ def plot_sismos(bin_path, output):
         receivers, samples = map(int, dimensions)
         if bin_path.stat().st_size != 8 + 4 * samples * (receivers + 1):
             raise ValueError("Sismogram file size does not match its dimensions")
-        values = np.fromfile(source, dtype="=f4").reshape(samples, receivers + 1)
+        values = np.fromfile(source, dtype="=f4")
+    read_seconds = perf_counter() - start_read
 
+    start_analysis = perf_counter()
+    values = values.reshape(samples, receivers + 1)
+    times = values[:, 0]
+    pressures = values[:, 1:]
+    analysis_seconds = perf_counter() - start_analysis
+
+    start_visualization = perf_counter()
     fig, ax = plt.subplots()
     for receiver in range(receivers):
-        ax.plot(values[:, 0], values[:, receiver + 1], label=f"receiver_{receiver}")
+        ax.plot(times, pressures[:, receiver], label=f"receiver_{receiver}")
     ax.set(xlabel="Temps (s)", ylabel="Pression", title="Sismogrammes")
     ax.grid(True)
     ax.legend()
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, bbox_inches="tight")
     plt.close(fig)
+    visualization_seconds = perf_counter() - start_visualization
+    save_metrics("sismos", {
+        "read_seconds": read_seconds,
+        "analysis_seconds": analysis_seconds,
+        "visualization_seconds": visualization_seconds,
+    })
     print(output)
 
 
@@ -49,14 +87,24 @@ def edges(centers):
 
 
 def plot_snapshots(paths, requested_z, out_dir):
+    start_read = perf_counter()
     first = load_snapshot(paths[0])
+    read_seconds = perf_counter() - start_read
+    start_analysis = perf_counter()
     levels = np.unique(first[:, 2])
     middle_z = (levels[0] + levels[-1]) / 2
     z = levels[np.argmin(abs(levels - (requested_z if requested_z is not None else middle_z)))]
 
     planes = []
+    analysis_seconds = perf_counter() - start_analysis
     for index, path in enumerate(paths):
-        data = first if index == 0 else load_snapshot(path)
+        if index == 0:
+            data = first
+        else:
+            start_read = perf_counter()
+            data = load_snapshot(path)
+            read_seconds += perf_counter() - start_read
+        start_analysis = perf_counter()
         points = data[data[:, 2] == z]
         if not len(points):
             raise ValueError(f"No nodes at z={z:g} in {path}")
@@ -67,12 +115,17 @@ def plot_snapshots(paths, requested_z, out_dir):
         pressure = np.full((len(y), len(x)), np.nan)
         pressure[y_index, x_index] = points[:, 3]
         planes.append((path, x, y, pressure))
+        analysis_seconds += perf_counter() - start_analysis
 
+    start_analysis = perf_counter()
     scale = max(np.nanmax(np.abs(pressure)) for _, _, _, pressure in planes)
     if scale == 0:
         scale = 1
+    analysis_seconds += perf_counter() - start_analysis
     out_dir.mkdir(parents=True, exist_ok=True)
+    visualization_seconds = 0.0
     for path, x, y, pressure in planes:
+        start_visualization = perf_counter()
         fig, ax = plt.subplots()
         image = ax.pcolormesh(edges(x), edges(y), pressure,
                               cmap="RdBu_r", vmin=-scale, vmax=scale)
@@ -82,7 +135,13 @@ def plot_snapshots(paths, requested_z, out_dir):
         output = out_dir / f"{path.stem}.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
+        visualization_seconds += perf_counter() - start_visualization
         print(output)
+    save_metrics("snapshots", {
+        "read_seconds": read_seconds,
+        "analysis_seconds": analysis_seconds,
+        "visualization_seconds": visualization_seconds,
+    })
 
 
 def main():

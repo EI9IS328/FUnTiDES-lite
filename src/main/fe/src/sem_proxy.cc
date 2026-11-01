@@ -187,8 +187,8 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
 
 void SEMproxy::run()
 {
-  time_point<system_clock> startComputeTime, startOutputTime, totalComputeTime,
-      totalOutputTime;
+  using Clock = std::chrono::steady_clock;
+  metrics_ = {};
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
@@ -196,14 +196,15 @@ void SEMproxy::run()
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
   {
-    startComputeTime = system_clock::now();
+    auto startComputeTime = Clock::now();
+    // computeOneStep attend déjà la fin des kernels Kokkos avec FENCE.
     m_solver->computeOneStep(dt_, indexTimeSample, solverData);
-    totalComputeTime += system_clock::now() - startComputeTime;
-
-    startOutputTime = system_clock::now();
+    metrics_.compute_seconds +=
+        std::chrono::duration<double>(Clock::now() - startComputeTime).count();
     
     if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
     {
+      const auto startSnapshotTime = Clock::now();
       // Vector : le solveur possède une copie distincte du champ de pression.
       // La recopier ici pour que saveSnapshot lise les résultats calculés.
       // Kokkos : les vues partagent déjà les données, aucune copie n'est requise.
@@ -211,6 +212,10 @@ void SEMproxy::run()
       pnGlobal = solverData.m_pnGlobal;
 #endif
       saveSnapshot(indexTimeSample);
+      // La préparation de la sortie (copie Vector incluse) est comptabilisée.
+      metrics_.snapshot_write_seconds +=
+          std::chrono::duration<double>(Clock::now() - startSnapshotTime)
+              .count();
     }
 
     if (indexTimeSample % 50 == 0)
@@ -220,6 +225,7 @@ void SEMproxy::run()
     }
 
     // Save pressure at receiver
+    startComputeTime = Clock::now();
     const int order = m_mesh->getOrder();
 
     for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
@@ -249,11 +255,12 @@ void SEMproxy::run()
     solverData.m_i1 = solverData.m_i2;
     solverData.m_i2 = tmp;
 
-    totalOutputTime += system_clock::now() - startOutputTime;
+    metrics_.compute_seconds +=
+        std::chrono::duration<double>(Clock::now() - startComputeTime).count();
   }
 
 
-  startOutputTime = system_clock::now();
+  const auto startSismogramTime = Clock::now();
   std::ofstream sismos("sismos.bin", std::ios::binary);
   if (!sismos) throw std::runtime_error("Cannot open sismos.bin");
   // Format natif : deux int32 (récepteurs, échantillons), puis pour chaque
@@ -275,17 +282,18 @@ void SEMproxy::run()
   sismos.close();
   if (!sismos) throw std::runtime_error("Cannot write sismos.bin");
 
-  totalOutputTime += system_clock::now() - startOutputTime;
-  float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
-                            .time_since_epoch()
-                            .count();
-  float outputtime_ms =
-      time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
+  metrics_.sismogram_write_seconds =
+      std::chrono::duration<double>(Clock::now() - startSismogramTime).count();
+  metrics_.sismogram_mb =
+      static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
 
   cout << "------------------------------------------------ " << endl;
-  cout << "\n---- Elapsed Kernel Time : " << kerneltime_ms / 1E6 << " seconds."
-       << endl;
-  cout << "---- Elapsed Output Time : " << outputtime_ms / 1E6 << " seconds."
+  cout << "\n---- Elapsed Compute Time : " << metrics_.compute_seconds
+       << " seconds." << endl;
+  cout << "---- Elapsed Snapshot Write Time : "
+       << metrics_.snapshot_write_seconds << " seconds." << endl;
+  cout << "---- Elapsed Sismogram Write Time : "
+       << metrics_.sismogram_write_seconds << " seconds."
        << endl;
   cout << "------------------------------------------------ " << endl;
 }
@@ -509,4 +517,7 @@ void SEMproxy::saveSnapshot(int timestep)
   output.close();
   if (!output)
     throw std::runtime_error("Cannot write snapshot file: " + path.string());
+  // Compter uniquement les fichiers sauvegardés pendant cette exécution.
+  metrics_.snapshot_mb +=
+      static_cast<double>(std::filesystem::file_size(path)) / 1e6;
 }
