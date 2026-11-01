@@ -13,7 +13,6 @@
 #include <source_and_receiver_utils.h>
 
 #include <cxxopts.hpp>
-#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <variant>
@@ -22,7 +21,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <limits>
 
 using namespace SourceAndReceiverUtils;
 
@@ -256,21 +254,26 @@ void SEMproxy::run()
 
 
   startOutputTime = system_clock::now();
-  std::ofstream sismos("sismos.csv");
-  if (!sismos) throw std::runtime_error("Cannot open sismos.csv");
-  sismos << "time";
-  for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
-    sismos << ",receiver_" << r;
-  sismos << '\n' << std::setprecision(std::numeric_limits<float>::max_digits10);
+  std::ofstream sismos("sismos.bin", std::ios::binary);
+  if (!sismos) throw std::runtime_error("Cannot open sismos.bin");
+  // Format natif : deux int32 (récepteurs, échantillons), puis pour chaque
+  // échantillon des float32 (temps, pression de chaque récepteur).
+  const std::int32_t dimensions[2] = {
+      static_cast<std::int32_t>(receiver_coords_.size()),
+      static_cast<std::int32_t>(num_sample_)};
+  sismos.write(reinterpret_cast<const char*>(dimensions), sizeof(dimensions));
   for (int sample = 0; sample < num_sample_; ++sample)
     {
-      sismos << (sample + 1) * dt_;
+      const float time = (sample + 1) * dt_;
+      sismos.write(reinterpret_cast<const char*>(&time), sizeof(time));
       for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
-        sismos << ',' << pnAtReceiver(r, sample);
-      sismos << '\n';
+        {
+          const float pressure = pnAtReceiver(r, sample);
+          sismos.write(reinterpret_cast<const char*>(&pressure), sizeof(pressure));
+        }
     }
   sismos.close();
-  if (!sismos) throw std::runtime_error("Cannot write sismos.csv");
+  if (!sismos) throw std::runtime_error("Cannot write sismos.bin");
 
   totalOutputTime += system_clock::now() - startOutputTime;
   float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)

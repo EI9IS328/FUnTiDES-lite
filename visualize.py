@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Plot SEM proxy CSV sismos and horizontal binary snapshot slices."""
+"""Plot SEM proxy binary sismos and horizontal binary snapshot slices."""
 
 import argparse
-import csv
 from pathlib import Path
 
 import matplotlib
@@ -11,16 +10,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_sismos(csv_path, output):
-    with csv_path.open(newline="") as source:
-        names = next(csv.reader(source))
-    values = np.loadtxt(csv_path, delimiter=",", skiprows=1, ndmin=2)
-    if names[0] != "time" or len(names) < 2 or values.shape[1] != len(names):
-        raise ValueError("Expected: time,receiver_0,receiver_1,...")
+def plot_sismos(bin_path, output):
+    # Native format: int32 receiver/sample counts, then float32 time + pressures.
+    with bin_path.open("rb") as source:
+        dimensions = np.fromfile(source, dtype="=i4", count=2)
+        if dimensions.size != 2 or np.any(dimensions <= 0):
+            raise ValueError("Expected positive receiver and sample counts")
+        receivers, samples = map(int, dimensions)
+        if bin_path.stat().st_size != 8 + 4 * samples * (receivers + 1):
+            raise ValueError("Sismogram file size does not match its dimensions")
+        values = np.fromfile(source, dtype="=f4").reshape(samples, receivers + 1)
 
     fig, ax = plt.subplots()
-    for column, name in enumerate(names[1:], start=1):
-        ax.plot(values[:, 0], values[:, column], label=name)
+    for receiver in range(receivers):
+        ax.plot(values[:, 0], values[:, receiver + 1], label=f"receiver_{receiver}")
     ax.set(xlabel="Temps (s)", ylabel="Pression", title="Sismogrammes")
     ax.grid(True)
     ax.legend()
@@ -86,7 +89,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     sismos = commands.add_parser("sismos")
-    sismos.add_argument("csv", type=Path)
+    sismos.add_argument("bin", type=Path)
     sismos.add_argument("--output", type=Path, default=Path("sismos.svg"))
     snapshots = commands.add_parser("snapshots")
     snapshots.add_argument(
@@ -96,7 +99,7 @@ def main():
     snapshots.add_argument("--out-dir", type=Path, default=Path("figures"))
     args = parser.parse_args()
     if args.command == "sismos":
-        plot_sismos(args.csv, args.output)
+        plot_sismos(args.bin, args.output)
     else:
         if not args.directory.is_dir():
             parser.error(f"Snapshot directory does not exist: {args.directory}")
