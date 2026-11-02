@@ -110,6 +110,12 @@ class SEMproxy
   std::string sismo_file_;
   std::string fft_file_;
   std::string stats_mode_;
+  // TP3 in-situ processing modes ("none" = disabled), set from the CLI
+  std::string insitu_viz_;
+  std::string insitu_compress_;
+  std::string insitu_extra_;
+  // Returns false to request a clean stop of the simulation.
+  bool runInSituProcessing(int step);
   int stats_interval_ = 0;  // intervalle des statistiques in situ
   double stats_total_ms_ = 0.0;
   int stats_count_ = 0;

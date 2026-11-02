@@ -74,6 +74,10 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   stats_mode_ = opt.stats_mode;
   if (stats_mode_ != "cpu" && stats_mode_ != "gpu" && stats_mode_ != "hostcopy")
     throw std::runtime_error("Unknown --stats-mode: " + stats_mode_);
+  // TP3 in-situ processing modes (each owner validates its own values later)
+  insitu_viz_ = opt.insitu_viz;
+  insitu_compress_ = opt.insitu_compress;
+  insitu_extra_ = opt.insitu_extra;
   // one streaming accumulator per receiver (rcv_coords_ is already filled here)
   if (stats_interval_ > 0)
     sismo_stats_.assign(rcv_coords_.size(), StreamStats());
@@ -230,7 +234,9 @@ void SEMproxy::run()
       else
         computePressureStatisticsCPU(i1, indexTimeSample);
      }
-
+     // TP3: single entry point of the in-situ processing. At this point,
+    // column i1 holds the newest field. A false return means a clean stop.
+    if (!runInSituProcessing(indexTimeSample)) break;
     swap(i1, i2);
     auto tmp = solverData.m_i1;
     solverData.m_i1 = solverData.m_i2;
@@ -736,4 +742,29 @@ void SEMproxy::recordStats(int step, const char* mode, double minP,
     stats_out_ << step << ',' << minP << ',' << maxP << ',' << mean << ','
                << variance << ',' << totalMs << ',' << mode << ',' << copyMs
                << ',' << computeMs << ',' << bytes << '\n';
+}
+
+// Single entry point of the TP3 in-situ processing (see sem_proxy.h).
+// Each part adds its own code in its own block below, so the time loop in
+// run() does not have to change again.
+bool SEMproxy::runInSituProcessing(int step)
+{
+  (void)step;  // unused until the parts are implemented
+
+  // Part 1: in-situ visualization
+  if (insitu_viz_ != "none")
+  {
+  }
+
+  // Part 2: compression
+  if (insitu_compress_ != "none")
+  {
+  }
+
+  // Part 3: other processing (steering, driven outputs, accumulated maps)
+  if (insitu_extra_ != "none")
+  {
+  }
+
+  return true;  // returning false would request a clean stop
 }

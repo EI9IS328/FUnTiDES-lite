@@ -20,6 +20,10 @@ class SemProxyOptions
   std::string stats_file = "";
   // In-situ statistics mode: cpu | gpu | hostcopy
   std::string stats_mode = "cpu";
+  // TP3 in-situ processing: one option per part ("none" = disabled)
+  std::string insitu_viz = "none";       // part 1: in-situ visualization
+  std::string insitu_compress = "none";  // part 2: compression
+  std::string insitu_extra = "none";     // part 3: other processing
   int stats_interval = 0;
   std::string sismo_file = "sismos.csv";
   std::string implem = "makutu";  // makutu|shiva
@@ -105,6 +109,13 @@ class SemProxyOptions
         cxxopts::value<std::string>(o.stats_mode))
         ("fft-file",
         "Output CSV file for the in-situ cuFFT spectra",
-        cxxopts::value<std::string>(o.fft_file));
-  }
+        cxxopts::value<std::string>(o.fft_file))
+        ("insitu-viz", "In-situ visualization mode (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_viz))(
+        "insitu-compress", "In-situ compression mode (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_compress))(
+        "insitu-extra", "Other in-situ processing (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_extra));
+
+ }  
 };
