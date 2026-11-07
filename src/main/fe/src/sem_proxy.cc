@@ -42,7 +42,9 @@ static void writePressureStatistics(std::ostream& output,
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
   is_in_situ_ = opt.mode == "in-situ";
-  is_snapshots_ = opt.is_snapshots_ && !is_in_situ_;
+  process_snapshots_ = opt.outputs != "sismograms";
+  process_sismograms_ = opt.outputs != "snapshots";
+  is_snapshots_ = opt.is_snapshots_ && !is_in_situ_ && process_snapshots_;
   snap_time_interval_ = opt.snap_time_interval_;
   snap_folder_ = opt.snap_folder_;
 
@@ -73,7 +75,12 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   rcv_coord_[1] = opt.rcvy;
   rcv_coord_[2] = opt.rcvz;
 
-  if (opt.recepteur_file_.empty())
+  if (!process_sismograms_)
+    {
+      // An isolated snapshot workflow has no receiver interpolation or history.
+      receiver_coords_.clear();
+    }
+  else if (opt.recepteur_file_.empty())
     {
       receiver_coords_.push_back(rcv_coord_);
     }
@@ -209,6 +216,9 @@ void SEMproxy::run()
   using Clock = std::chrono::steady_clock;
   metrics_ = {};
   metrics_.in_situ = is_in_situ_;
+  metrics_.outputs = process_snapshots_ ? (process_sismograms_ ? "both" : "snapshots")
+                                       : "sismograms";
+  metrics_.sample_count = num_sample_;
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
@@ -229,8 +239,11 @@ void SEMproxy::run()
     const auto startWriteTime = Clock::now();
     statistics.open(statistics_path);
     if (!statistics) throw std::runtime_error("Cannot open in-situ statistics file");
-    statistics << std::setprecision(17)
-               << "{\n  \"snapshots\": {\n    \"per_snapshot\": [";
+    statistics << std::setprecision(17) << "{\n  \"snapshots\": ";
+    if (process_snapshots_)
+      statistics << "{\n    \"per_snapshot\": [";
+    else
+      statistics << "null";
     if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
     metrics_.statistics_write_seconds +=
         std::chrono::duration<double>(Clock::now() - startWriteTime).count();
@@ -245,7 +258,7 @@ void SEMproxy::run()
     metrics_.compute_seconds +=
         std::chrono::duration<double>(Clock::now() - startComputeTime).count();
     
-    if (is_in_situ_ && indexTimeSample % snap_time_interval_ == 0)
+    if (is_in_situ_ && process_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
     {
       const auto startAnalysisTime = Clock::now();
       // Read the solver's current buffer directly, including in Vector builds.
@@ -336,7 +349,7 @@ void SEMproxy::run()
         pnAtReceiver(r, indexTimeSample) = varnp1;
     }
 
-    if (is_in_situ_)
+    if (is_in_situ_ && process_sismograms_)
     {
       metrics_.compute_seconds +=
           std::chrono::duration<double>(Clock::now() - startComputeTime).count();
@@ -374,7 +387,7 @@ void SEMproxy::run()
   }
 
 
-  if (!is_in_situ_)
+  if (!is_in_situ_ && process_sismograms_)
   {
     const auto startSismogramTime = Clock::now();
     std::ofstream sismos("sismos.bin", std::ios::binary);
@@ -403,23 +416,32 @@ void SEMproxy::run()
     metrics_.sismogram_mb =
         static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
   }
-  else
+  else if (is_in_situ_)
   {
-    const auto startAnalysisTime = Clock::now();
     std::vector<PressureMeanVariance> receiver_results;
-    receiver_results.reserve(receiver_coords_.size());
-    for (const auto& state : receiver_moments)
-      receiver_results.push_back(finalizePressureMeanVariance(state));
-    metrics_.sismogram_analysis_seconds +=
-        std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+    if (process_sismograms_)
+    {
+      const auto startAnalysisTime = Clock::now();
+      receiver_results.reserve(receiver_coords_.size());
+      for (const auto& state : receiver_moments)
+        receiver_results.push_back(finalizePressureMeanVariance(state));
+      metrics_.sismogram_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+    }
 
     const auto startWriteTime = Clock::now();
-    statistics << "\n    ],\n    \"global_extrema\": {\n"
+    if (process_snapshots_)
+      statistics << "\n    ],\n    \"global_extrema\": {\n"
                << "      \"minimum_pressure\": " << global_extrema.minimum_pressure << ",\n"
                << "      \"maximum_pressure\": " << global_extrema.maximum_pressure << ",\n"
                << "      \"maximum_absolute_pressure\": "
                << global_extrema.maximum_absolute_pressure << "\n"
-               << "    }\n  },\n  \"sismograms\": {\n    \"per_receiver\": [\n";
+               << "    }\n  }";
+    statistics << ",\n  \"sismograms\": ";
+    if (process_sismograms_)
+      statistics << "{\n    \"per_receiver\": [\n";
+    else
+      statistics << "null";
     for (std::size_t r = 0; r < receiver_coords_.size(); ++r)
     {
       if (r != 0) statistics << ",\n";
@@ -428,7 +450,9 @@ void SEMproxy::run()
       writePressureStatistics(statistics, receiver_extrema[r], receiver_results[r]);
       statistics << "      }";
     }
-    statistics << "\n    ]\n  }\n}\n";
+    if (process_sismograms_)
+      statistics << "\n    ]\n  }";
+    statistics << "\n}\n";
     statistics.close();
     if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
     metrics_.statistics_mb =
@@ -459,6 +483,7 @@ void SEMproxy::init_arrays()
   myRHSTerm = allocateArray2D<arrayReal>(myNumberOfRHS, num_sample_, "RHSTerm");
   pnGlobal =
       allocateArray2D<arrayReal>(m_mesh->getNumberOfNodes(), 2, "pnGlobal");
+  if (!process_sismograms_) return;
   const int numberOfReceivers = static_cast<int>(receiver_coords_.size());
   if (!is_in_situ_)
     pnAtReceiver = allocateArray2D<arrayReal>(numberOfReceivers, num_sample_, "pnAtReceiver");
@@ -548,6 +573,8 @@ void SEMproxy::init_source()
     default:
       throw std::runtime_error("Unsupported order: " + std::to_string(order));
   }
+
+  if (!process_sismograms_) return;
 
   // Receiver computation
   // int receiver_index = floor((rcv_coord_[0] * ex) / lx) +

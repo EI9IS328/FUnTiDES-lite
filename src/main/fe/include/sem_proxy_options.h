@@ -17,6 +17,7 @@ class SemProxyOptions
   std::string method = "sem";     // sem|dg
   std::string mesh = "cartesian";
   std::string mode = "ad-hoc";
+  std::string outputs = "both";
   float dt = 0.001;
   float timemax = 1.5;
   bool autodt = false;
@@ -37,6 +38,8 @@ class SemProxyOptions
   {
     if (mode != "ad-hoc" && mode != "in-situ")
       throw std::runtime_error("mode must be ad-hoc or in-situ");
+    if (outputs != "both" && outputs != "snapshots" && outputs != "sismograms")
+      throw std::runtime_error("outputs must be both, snapshots or sismograms");
     if (order < 1) throw std::runtime_error("order must be >= 1");
     if (ex <= 0 || ey <= 0 || ez <= 0)
       throw std::runtime_error("ex/ey/ez must be > 0");
@@ -69,6 +72,8 @@ class SemProxyOptions
         cxxopts::value<std::string>(o.mesh))(
         "mode", "Analysis workflow: ad-hoc (default) | in-situ",
         cxxopts::value<std::string>(o.mode))(
+        "outputs", "Outputs/analyses to enable: both (default) | snapshots | sismograms",
+        cxxopts::value<std::string>(o.outputs))(
         "dt", "Time step selection in s (default = 0.001s)",
         cxxopts::value<float>(o.dt))(
         "timemax", "Duration of the simulation in s (default = 1.5s)",

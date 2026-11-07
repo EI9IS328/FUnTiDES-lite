@@ -19,6 +19,8 @@ static void saveMetrics(const SemProxyMetrics& metrics)
   // Un rapport par essai ; une nouvelle simulation réinitialise Python à null.
   output << std::setprecision(17)
          << "{\n  \"simulation\": {\n"
+         << "    \"outputs\": \"" << metrics.outputs << "\",\n"
+         << "    \"sample_count\": " << metrics.sample_count << ",\n"
          << "    \"total_seconds\": " << metrics.total_seconds << ",\n"
          << "    \"compute_seconds\": " << metrics.compute_seconds << ",\n"
          << "    \"snapshot_write_seconds\": "
