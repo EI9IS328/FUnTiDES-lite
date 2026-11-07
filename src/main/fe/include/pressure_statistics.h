@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <chrono>
 #include <stdexcept>
 
 // Extrema over all nodes of one pressure-field time buffer.
@@ -15,7 +16,8 @@ struct PressureExtrema
   double maximum_absolute_pressure;
 };
 
-inline void validatePressureField(const arrayReal& pressure, int timeIndex)
+template <class PressureArray>
+inline void validatePressureField(const PressureArray& pressure, int timeIndex)
 {
   // timeIndex selects a stored time buffer, not the simulation step number.
   if (pressure.extent(0) == 0)
@@ -26,7 +28,8 @@ inline void validatePressureField(const arrayReal& pressure, int timeIndex)
 }
 
 // Host traversal for Vector storage or host-accessible Kokkos views.
-inline PressureExtrema computePressureExtremaCPU(const arrayReal& pressure,
+template <class PressureArray>
+inline PressureExtrema computePressureExtremaCPU(const PressureArray& pressure,
                                                  int timeIndex)
 {
   validatePressureField(pressure, timeIndex);
@@ -90,6 +93,102 @@ inline PressureExtrema computePressureExtremaKokkos(const arrayReal& pressure,
           std::max(std::abs(extrema.min_val), std::abs(extrema.max_val))};
 }
 #endif  // USE_KOKKOS
+
+#ifdef USE_KOKKOS
+// Experimental timings are independent of the full snapshot-analysis timer.
+struct MeasuredExtrema
+{
+  PressureExtrema values{};
+  double prepare_seconds = 0, compute_seconds = 0, result_seconds = 0, total_seconds = 0;
+  std::size_t input_bytes = 0, result_bytes = 0;
+};
+
+class PressureExtremaWorkspace
+{
+  using Space = Kokkos::DefaultExecutionSpace::memory_space;
+  using MinMax = Kokkos::MinMax<double, Space>;
+  using Finite = Kokkos::LAnd<int, Space>;
+  Kokkos::View<float**, Kokkos::LayoutRight, Kokkos::HostSpace> host_field_;
+  typename MinMax::result_view_type device_extrema_;
+  typename Finite::result_view_type device_finite_;
+  Kokkos::View<typename MinMax::value_type, Kokkos::HostSpace> host_extrema_;
+  Kokkos::View<int, Kokkos::HostSpace> host_finite_;
+  bool on_cpu_;
+
+ public:
+  PressureExtremaWorkspace(std::size_t nodes, bool on_cpu) : on_cpu_(on_cpu)
+  {
+    // Allocate once before the time loop, never inside the measured block.
+    if (on_cpu_)
+      host_field_ = decltype(host_field_)("extrema_host_field", nodes, 1);
+    else
+    {
+      device_extrema_ = typename MinMax::result_view_type("extrema_device_result");
+      device_finite_ = typename Finite::result_view_type("extrema_device_finite");
+      host_extrema_ = decltype(host_extrema_)("extrema_host_result");
+      host_finite_ = decltype(host_finite_)("extrema_host_finite");
+    }
+  }
+
+  MeasuredExtrema measure(const arrayReal& pressure, int time_index)
+  {
+    validatePressureField(pressure, time_index);
+    using Clock = std::chrono::steady_clock;
+    const auto seconds = [](auto start) {
+      return std::chrono::duration<double>(Clock::now() - start).count();
+    };
+    // Exclude outstanding physics kernels from this statistical measurement.
+    Kokkos::fence();
+    const auto total_start = Clock::now();
+    MeasuredExtrema result;
+    if (on_cpu_)
+    {
+      const auto prepare_start = Clock::now();
+      Kokkos::deep_copy(Kokkos::subview(host_field_, Kokkos::ALL(), 0),
+                        Kokkos::subview(pressure, Kokkos::ALL(), time_index));
+      Kokkos::fence();
+      result.prepare_seconds = seconds(prepare_start);
+      result.input_bytes = pressure.extent(0) * sizeof(float);
+      const auto compute_start = Clock::now();
+      result.values = computePressureExtremaCPU(host_field_, 0);
+      result.compute_seconds = seconds(compute_start);
+    }
+    else
+    {
+      const auto field = pressure;
+      const auto compute_start = Clock::now();
+      // Device result views prevent an implicit host-result copy inside this timer.
+      Kokkos::parallel_reduce(
+          "MeasuredPressureExtrema",
+          Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>(0, pressure.extent(0)),
+          KOKKOS_LAMBDA(const std::size_t node, typename MinMax::value_type& extrema,
+                        int& finite) {
+            const double value = field(node, time_index);
+            if (!Kokkos::isfinite(value)) finite = 0;
+            else
+            {
+              if (value < extrema.min_val) extrema.min_val = value;
+              if (value > extrema.max_val) extrema.max_val = value;
+            }
+          }, MinMax(device_extrema_), Finite(device_finite_));
+      Kokkos::fence();
+      result.compute_seconds = seconds(compute_start);
+      const auto result_start = Clock::now();
+      Kokkos::deep_copy(host_extrema_, device_extrema_);
+      Kokkos::deep_copy(host_finite_, device_finite_);
+      Kokkos::fence();
+      if (!host_finite_()) throw std::invalid_argument("Pressure must be finite");
+      const auto extrema = host_extrema_();
+      result.values = {extrema.min_val, extrema.max_val,
+                      std::max(std::abs(extrema.min_val), std::abs(extrema.max_val))};
+      result.result_seconds = seconds(result_start);
+      result.result_bytes = sizeof(typename MinMax::value_type) + sizeof(int);
+    }
+    result.total_seconds = seconds(total_start);
+    return result;
+  }
+};
+#endif
 
 struct PressureMeanVariance
 {

@@ -33,6 +33,11 @@ struct SemProxyMetrics
   bool in_situ = false;
   std::string outputs = "both";
   int sample_count = 0;
+  std::string extrema_backend;
+  std::string execution_space;
+  double extrema_prepare_seconds = 0, extrema_compute_seconds = 0;
+  double extrema_result_seconds = 0, extrema_total_seconds = 0;
+  std::size_t extrema_input_bytes = 0, extrema_result_bytes = 0, extrema_calls = 0;
   double snapshot_analysis_seconds = 0;
   double sismogram_analysis_seconds = 0;
   double statistics_write_seconds = 0;
@@ -100,6 +105,7 @@ class SEMproxy
  private:
   SemProxyMetrics metrics_;
   bool is_in_situ_ = false;
+  std::string extrema_backend_;
   bool process_snapshots_ = true;
   bool process_sismograms_ = true;
   int i1 = 0;

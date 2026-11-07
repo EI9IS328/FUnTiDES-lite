@@ -27,12 +27,13 @@ STYLES = {"ad-hoc": "-", "in-situ": "--"}
 MARKERS = {"ad-hoc": "o", "in-situ": "^"}
 
 
-def load_config(path):
+def load_config(path, cpu_gpu=False):
     data = json.loads(path.read_text(encoding="utf-8"))
-    if set(data) != {"executable", "receivers", "repetitions", "parameters", "sizes",
-                     "precision_intervals"}:
-        raise ValueError("Champs requis : executable, receivers, repetitions, parameters, "
-                         "sizes, precision_intervals")
+    expected = {"executable", "repetitions", "parameters", "sizes"}
+    if not cpu_gpu:
+        expected.update(("receivers", "precision_intervals"))
+    if set(data) != expected:
+        raise ValueError("Champs requis : " + ", ".join(sorted(expected)))
     if type(data["repetitions"]) is not int or data["repetitions"] < 2:
         raise ValueError("repetitions doit être un entier >= 2")
     sizes = data["sizes"]
@@ -56,14 +57,15 @@ def load_config(path):
         raise ValueError("order doit être 1, 2 ou 3")
     if type(params["snap-time-interval"]) is not int or params["timemax"] < params["dt"]:
         raise ValueError("Intervalle entier et au moins un pas de temps requis")
-    intervals = data["precision_intervals"]
-    if (not isinstance(intervals, list) or not intervals or
-            any(type(k) is not int or k <= 0 for k in intervals) or
-            len(intervals) != len(set(intervals))):
-        raise ValueError("precision_intervals : liste d'entiers positifs distincts")
-    if 1 not in intervals or params["snap-time-interval"] not in intervals:
-        raise ValueError("precision_intervals doit contenir 1 et snap-time-interval")
-    for name in ("executable", "receivers"):
+    if not cpu_gpu:
+        intervals = data["precision_intervals"]
+        if (not isinstance(intervals, list) or not intervals or
+                any(type(k) is not int or k <= 0 for k in intervals) or
+                len(intervals) != len(set(intervals))):
+            raise ValueError("precision_intervals : liste d'entiers positifs distincts")
+        if 1 not in intervals or params["snap-time-interval"] not in intervals:
+            raise ValueError("precision_intervals doit contenir 1 et snap-time-interval")
+    for name in (("executable",) if cpu_gpu else ("executable", "receivers")):
         target = (path.parent / data[name]).resolve()
         if not target.is_file():
             raise ValueError(f"Fichier introuvable : {target}")
@@ -351,14 +353,182 @@ def execute(config,size,kind,mode,interval,directory,receivers,analyzer):
     return read_run(directory,kind,mode,elapsed,size,config,interval)
 
 
+def run_extrema_case(config, size, backend, directory):
+    directory.mkdir()
+    interval = config["parameters"]["snap-time-interval"]
+    cmd = command(config, size, "snapshots", "in-situ", interval, None)
+    cmd.extend(("--extrema-backend", backend))
+    start = perf_counter()
+    run_command(cmd, directory, "simulation")
+    wall = perf_counter() - start
+    _, stats, samples = read_run(directory, "snapshots", "in-situ", wall,
+                                 size, config, interval)
+    report = json.loads((directory / "metrics.json").read_text(encoding="utf-8"))
+    measured = report["extrema_comparison"]
+    if measured["backend"] != backend or "cuda" not in measured["execution_space"].lower():
+        raise ValueError("La comparaison CPU/GPU exige une simulation CUDA dans les deux cas")
+    nodes = (config["parameters"]["order"] * size + 1) ** 3
+    calls = len(stats["snapshots"]["per_snapshot"])
+    if measured["calls"] != calls:
+        raise ValueError("Nombre de mesures des extrema incohérent")
+    values = {key: number(measured[key], key) for key in (
+        "prepare_seconds", "compute_seconds", "result_seconds", "total_seconds",
+        "input_bytes", "result_bytes")}
+    if any(type(measured[key]) is not int for key in ("input_bytes", "result_bytes", "calls")):
+        raise ValueError("Compteurs d'octets/appels invalides")
+    if backend == "cpu" and (measured["input_bytes"] != calls * nodes * 4 or measured["result_bytes"] != 0):
+        raise ValueError("Volume de copie du champ incohérent")
+    if backend == "kokkos" and (measured["input_bytes"] != 0 or measured["result_bytes"] <= 0):
+        raise ValueError("Volume de récupération GPU incohérent")
+    if measured["total_seconds"] < sum(measured[key] for key in ("prepare_seconds", "compute_seconds", "result_seconds")):
+        raise ValueError("Chronomètres du bloc incohérents")
+    values.update(workflow_seconds=wall, calls=calls, nodes=nodes, samples=samples,
+                  execution_space=measured["execution_space"])
+    return values, stats
+
+
+def extrema_summary(records):
+    groups = {}
+    for row in records:
+        groups.setdefault((row["case"], row["elements"], row["backend"]), []).append(row)
+    return [{"case": case, "elements": size, "backend": backend,
+             "repetitions": len(rows), "metric": metric,
+             "median": median(row[metric] for row in rows)}
+            for (case, size, backend), rows in sorted(groups.items())
+            for metric in ("prepare_seconds", "compute_seconds", "result_seconds",
+                           "total_seconds", "input_bytes", "result_bytes", "workflow_seconds")]
+
+
+def plot_extrema_comparison(summary, output, plt):
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    for ax, (metric, title) in zip(axes, (
+        ("compute_seconds", "Calcul des extrema seul"),
+        ("total_seconds", "Total du bloc : préparation + calcul + récupération"),
+    )):
+        for backend, label, color, style, marker in (
+            ("cpu", "CPU hôte séquentiel", "#2878b5", "-", "o"),
+            ("kokkos", "GPU — réduction Kokkos/CUDA", "#e58525", "--", "^"),
+        ):
+            rows = sorted((r for r in summary if r["backend"] == backend and r["metric"] == metric),
+                          key=lambda r: r["elements"])
+            ax.plot([r["elements"] for r in rows], [r["median"] for r in rows],
+                    label=label, color=color, linestyle=style, marker=marker)
+        ax.set(xlabel="Éléments par direction N", ylabel="Temps cumulé médian (s)", title=title)
+        ax.set_ylim(bottom=0)
+        ax.grid(alpha=.25)
+        ax.legend(fontsize=8, handlelength=4)
+    fig.suptitle("Simulation GPU dans les deux cas — extrema CPU ou GPU aux mêmes pas")
+    fig.tight_layout(rect=(0, 0, 1, .92))
+    fig.savefig(output / "cpu_gpu_extrema.svg")
+    plt.close(fig)
+
+
+def write_extrema_html(output, summary, config):
+    groups = {}
+    for row in summary:
+        groups.setdefault((row["elements"], row["backend"]), {})[row["metric"]] = row["median"]
+    table = html_table(
+        ("N", "Calcul des extrema", "Préparation (s)", "Calcul (s)", "Récupération (s)",
+         "Total du bloc (s)", "Entrée copiée (octets)", "Résultat copié (octets)", "Workflow (s)"),
+        ([size, backend, *[values[key] for key in (
+            "prepare_seconds", "compute_seconds", "result_seconds", "total_seconds",
+            "input_bytes", "result_bytes", "workflow_seconds")]]
+         for (size, backend), values in sorted(groups.items())))
+    text = (
+        '<!doctype html><html lang="fr"><meta charset="utf-8"><title>Extrema CPU/GPU</title>'
+        '<style>body{font-family:sans-serif;margin:2rem}table{border-collapse:collapse}'
+        'td,th{border:1px solid #aaa;padding:.5rem;text-align:right}</style>'
+        '<h1>Extrema CPU hôte / GPU dans une simulation CUDA</h1>'
+        f'<p>Médianes de {config["repetitions"]} essais, champs analysés tous les '
+        f'{config["parameters"]["snap-time-interval"]} pas. Chaque temps est cumulé '
+        'sur une exécution. Le bloc ne comprend ni le calcul physique ni le JSON.</p>'
+        + table + '<p>cpu : parcours séquentiel après copie vers un tampon hôte ; '
+        'kokkos : réduction CUDA et récupération de min/max et du drapeau de validité. '
+        'Le maximum absolu est déduit des extrema. Les allocations sont hors du bloc.</p>'
+        '<p>Le total est mesuré indépendamment : sa médiane ne se déduit pas en additionnant '
+        'les médianes des composantes. Les octets indiquent les copies explicites cumulées, '
+        'pas le trafic physique UVM/PCIe. Les mises à disposition peuvent inclure des migrations '
+        'et de la synchronisation. Le workflow complet inclut aussi moyenne/variance et les écritures.</p>'
+        '<p>Les résultats des extrema à chaque pas sont dans extrema.csv, sans seuil arbitraire. '
+        'Des simulations indépendantes ne garantissent pas des champs bit à bit identiques ; '
+        'une différence entre résultats ne suffit pas à incriminer la réduction.</p>'
+        '<p>Schéma : <a href="figure/protocol.svg">protocole</a>. '
+        'Figure : <a href="figure/cpu_gpu_extrema.svg">calcul et coût total</a>. '
+        'Méthode complète : <a href="CPU_GPU_REPORT.md">rapport du protocole</a>.</p></html>')
+    (output / "cpu_gpu.html").write_text(text, encoding="utf-8")
+
+
+def compare_cpu_gpu(config_path, config, cases, help_text):
+    if "--extrema-backend" not in help_text:
+        raise ValueError("Recompiler semproxy : --extrema-backend est absent")
+    if "kokkos execution space: cuda" not in help_text.lower():
+        raise ValueError("Expérience CPU/GPU : un exécutable CUDA et une machine GPU sont nécessaires")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    selected = [(case, n) for case in ("S", "M", "L") if case in cases
+                for n in config["sizes"][case]]
+    output = config_path.parent / "results" / datetime.now().strftime("tp2-cpu-gpu-%Y%m%d-%H%M%S")
+    output.mkdir(parents=True, exist_ok=False)
+    figures = output / "figure"
+    figures.mkdir()
+    shutil.copyfile(config_path, output / "cpu_gpu_config.json")
+    source = Path(__file__).resolve().parent
+    report_text = (source / "CPU_GPU_REPORT.md").read_text(encoding="utf-8")
+    (output / "CPU_GPU_REPORT.md").write_text(
+        report_text.replace("(cpu_gpu_protocol.svg)", "(figure/protocol.svg)"), encoding="utf-8")
+    shutil.copyfile(source / "cpu_gpu_protocol.svg", figures / "protocol.svg")
+    env = environment(config["executable"])
+    env["execution_space"] = "Cuda"
+    env["python"] = sys.version
+    cpu_info = Path("/proc/cpuinfo")
+    env["cpu_model"] = next((line.split(":", 1)[1].strip()
+                             for line in cpu_info.read_text().splitlines()
+                             if line.startswith("model name")), "non disponible") if cpu_info.is_file() else "non disponible"
+    (output / "environment.json").write_text(json.dumps(env, indent=2) + "\n", encoding="utf-8")
+    print(f"Comparaison des extrema : {len(selected) * 2 * config['repetitions']} simulations CUDA, aucun snapshot brut.", flush=True)
+    if env["build"].get("CMAKE_BUILD_TYPE") != "Release":
+        print("Compilation Release non confirmée par CMakeCache ; vérifier les options d'optimisation.", flush=True)
+    records, extrema = [], []
+    for case, n in selected:
+        for repeat in range(1, config["repetitions"] + 1):
+            pair = {}
+            order = ("cpu", "kokkos") if repeat % 2 else ("kokkos", "cpu")
+            for backend in order:
+                directory = output / f"{case}-n{n}-run{repeat:02d}-{backend}"
+                print(f"{case} N={n} essai {repeat} : extrema {backend}", flush=True)
+                values, stats = run_extrema_case(config, n, backend, directory)
+                records.append({"case": case, "elements": n, "repeat": repeat,
+                                "backend": backend, **values})
+                pair[backend] = stats["snapshots"]["per_snapshot"]
+                for row in pair[backend]:
+                    extrema.append({"case": case, "elements": n, "repeat": repeat,
+                                    "backend": backend, "timestep_index": row["timestep_index"],
+                                    "time_seconds": row["time_seconds"],
+                                    **{key: row[key] for key in FIELDS[:3]}})
+            if records[-1]["samples"] != records[-2]["samples"] or records[-1]["calls"] != records[-2]["calls"]:
+                raise ValueError("Les deux chemins n'ont pas analysé les mêmes nombres de champs/pas")
+            if [r["timestep_index"] for r in pair["cpu"]] != [r["timestep_index"] for r in pair["kokkos"]]:
+                raise ValueError("Les instants analysés diffèrent")
+            write_csv(output / "runs.csv", records)
+            write_csv(output / "summary.csv", extrema_summary(records))
+            write_csv(output / "extrema.csv", extrema)
+    summary = extrema_summary(records)
+    plot_extrema_comparison(summary, figures, plt)
+    write_extrema_html(output, summary, config)
+    print(f"Résultats CPU/GPU : {output}")
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config",type=Path)
     parser.add_argument("--cases",nargs="+",choices=("S","M","L"),default=["S","M","L"])
     parser.add_argument("--data",nargs="+",choices=("snapshots","sismograms"),default=["snapshots","sismograms"])
+    parser.add_argument("--compare-cpu-gpu", action="store_true",
+                        help="Comparer les extrema CPU hôte / GPU avec cpu_gpu_config.json")
     args=parser.parse_args()
     try:
-        config_path=args.config.resolve(); config=load_config(config_path)
+        config_path=args.config.resolve(); config=load_config(config_path, args.compare_cpu_gpu)
         if len(set(args.cases))!=len(args.cases) or len(set(args.data))!=len(args.data):
             raise ValueError("Cas ou types de données répétés")
         # Old builds accept unknown flags, so reject them before a costly run.
@@ -366,6 +536,11 @@ def main():
                                      capture_output=True, text=True, check=True)
         if "--outputs" not in help_result.stdout:
             raise ValueError("Recompiler semproxy : l'exécutable ne propose pas --outputs")
+        if args.compare_cpu_gpu:
+            if args.data != ["snapshots", "sismograms"]:
+                raise ValueError("--data est réservé à la comparaison ad-hoc/in-situ")
+            compare_cpu_gpu(config_path, config, args.cases, help_result.stdout)
+            return
         import numpy  # noqa: F401 — required by analyze.py
         import matplotlib
         matplotlib.use("Agg")

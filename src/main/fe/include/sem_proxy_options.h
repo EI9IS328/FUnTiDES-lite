@@ -18,6 +18,7 @@ class SemProxyOptions
   std::string mesh = "cartesian";
   std::string mode = "ad-hoc";
   std::string outputs = "both";
+  std::string extrema_backend;  // Empty preserves the existing automatic path.
   float dt = 0.001;
   float timemax = 1.5;
   bool autodt = false;
@@ -40,6 +41,16 @@ class SemProxyOptions
       throw std::runtime_error("mode must be ad-hoc or in-situ");
     if (outputs != "both" && outputs != "snapshots" && outputs != "sismograms")
       throw std::runtime_error("outputs must be both, snapshots or sismograms");
+    if (!extrema_backend.empty())
+    {
+      if (extrema_backend != "cpu" && extrema_backend != "kokkos")
+        throw std::runtime_error("extrema-backend must be cpu or kokkos");
+      if (mode != "in-situ" || outputs != "snapshots")
+        throw std::runtime_error("extrema-backend requires in-situ and snapshots-only outputs");
+#ifndef USE_KOKKOS
+      throw std::runtime_error("Measured extrema require a Kokkos build");
+#endif
+    }
     if (order < 1) throw std::runtime_error("order must be >= 1");
     if (ex <= 0 || ey <= 0 || ez <= 0)
       throw std::runtime_error("ex/ey/ez must be > 0");
@@ -74,6 +85,8 @@ class SemProxyOptions
         cxxopts::value<std::string>(o.mode))(
         "outputs", "Outputs/analyses to enable: both (default) | snapshots | sismograms",
         cxxopts::value<std::string>(o.outputs))(
+        "extrema-backend", "Measured snapshot extrema: cpu | kokkos (default: automatic, uninstrumented)",
+        cxxopts::value<std::string>(o.extrema_backend))(
         "dt", "Time step selection in s (default = 0.001s)",
         cxxopts::value<float>(o.dt))(
         "timemax", "Duration of the simulation in s (default = 1.5s)",

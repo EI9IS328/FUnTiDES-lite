@@ -117,7 +117,7 @@ outputs for each configured precision interval. The first timed ad-hoc trial is
 reused at the timing cadence. These extra runs are excluded from timing medians.
 The script prints the simulation count and estimated raw snapshot storage;
 saving at k=1 can require substantial space. With default configuration, group S
-and both data types run 75 simulations (60 timing + 15 precision).
+and both data types run 25 simulations (20 timing + 5 precision).
 
 Dated `benchmarks/results/tp2-*` directories contain independent runs, logs,
 configuration/environment copies and progressive CSV files:
@@ -128,7 +128,8 @@ configuration/environment copies and progressive CSV files:
 - `precision.csv`: actual snapshot peaks and temporal means for each k and the
   in-situ reference; not a physical exact solution.
 
-After all measurements, the script generates:
+After all measurements, the script puts SVGs in the campaign's `figure/`
+subdirectory. CSVs and `statistics.html` remain at the campaign root:
 
 - `costs_snapshots.svg`, `costs_sismograms.svg`: log time axis, separate raw
   write, raw read, statistics calculation and statistics JSON write curves.
@@ -150,3 +151,31 @@ controlled. Logs, metric files and reporting artifacts are excluded from data
 volume totals. The referenced measurement-methodology annex is absent from
 the supplied `doc/` files. Compilation and actual backend execution remain to
 be checked locally.
+
+## Comparaison des extrema CPU hôte / GPU
+
+Le protocole, les formules, les chronomètres et les limites sont détaillés dans
+[le rapport CPU/GPU](benchmarks/CPU_GPU_REPORT.md), avec
+[le schéma du protocole](benchmarks/cpu_gpu_protocol.svg).
+Le code est fourni ; la compilation et la validation CUDA restent à effectuer
+sur la machine GPU. Les vérifications locales ne constituent pas une mesure GPU.
+
+```sh
+python3 benchmarks/compare.py benchmarks/cpu_gpu_config.json --compare-cpu-gpu --cases S M L
+```
+
+Le fichier dédié contient seulement exécutable, tailles, répétitions et paramètres
+physiques. Le pilote lance deux chemins in-situ sur le même exécutable CUDA :
+`--extrema-backend cpu` (parcours séquentiel après mise à disposition sur l'hôte)
+et `--extrema-backend kokkos` (réduction GPU et retour des résultats).
+Seuls les extrema changent de lieu de calcul, pas l'onde ni moyenne/variance.
+Sans l'option C++ expérimentale, le traitement habituel reste automatique.
+Kokkos/OpenMP permet de vérifier les chemins localement après compilation,
+mais le pilote `--compare-cpu-gpu` exige CUDA et refuse de le présenter comme GPU.
+
+Pour trois tailles et cinq répétitions, 30 simulations sont lancées, sans
+snapshots bruts. Les nouvelles campagnes `results/tp2-cpu-gpu-*` contiennent
+`runs.csv`, `summary.csv`, `extrema.csv`, `cpu_gpu.html`, le rapport du protocole,
+la configuration, l'environnement et les fichiers de chaque essai.
+La figure de comparaison et le schéma sont dans `figure/`.
+La génération du rapport et des figures est hors des chronomètres.

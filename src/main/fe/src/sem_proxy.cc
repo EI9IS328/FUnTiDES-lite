@@ -42,6 +42,7 @@ static void writePressureStatistics(std::ostream& output,
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
   is_in_situ_ = opt.mode == "in-situ";
+  extrema_backend_ = opt.extrema_backend;
   process_snapshots_ = opt.outputs != "sismograms";
   process_sismograms_ = opt.outputs != "snapshots";
   is_snapshots_ = opt.is_snapshots_ && !is_in_situ_ && process_snapshots_;
@@ -219,6 +220,14 @@ void SEMproxy::run()
   metrics_.outputs = process_snapshots_ ? (process_sismograms_ ? "both" : "snapshots")
                                        : "sismograms";
   metrics_.sample_count = num_sample_;
+  metrics_.extrema_backend = extrema_backend_;
+#ifdef USE_KOKKOS
+  metrics_.execution_space = Kokkos::DefaultExecutionSpace::name();
+  std::unique_ptr<PressureExtremaWorkspace> extrema_workspace;
+  if (!extrema_backend_.empty())
+    extrema_workspace = std::make_unique<PressureExtremaWorkspace>(
+        m_mesh->getNumberOfNodes(), extrema_backend_ == "cpu");
+#endif
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
@@ -263,7 +272,21 @@ void SEMproxy::run()
       const auto startAnalysisTime = Clock::now();
       // Read the solver's current buffer directly, including in Vector builds.
 #ifdef USE_KOKKOS
-      const auto extrema = computePressureExtremaKokkos(solverData.m_pnGlobal, i1);
+      PressureExtrema extrema;
+      if (extrema_workspace)
+      {
+        const auto measured = extrema_workspace->measure(solverData.m_pnGlobal, i1);
+        extrema = measured.values;
+        metrics_.extrema_prepare_seconds += measured.prepare_seconds;
+        metrics_.extrema_compute_seconds += measured.compute_seconds;
+        metrics_.extrema_result_seconds += measured.result_seconds;
+        metrics_.extrema_total_seconds += measured.total_seconds;
+        metrics_.extrema_input_bytes += measured.input_bytes;
+        metrics_.extrema_result_bytes += measured.result_bytes;
+        ++metrics_.extrema_calls;
+      }
+      else
+        extrema = computePressureExtremaKokkos(solverData.m_pnGlobal, i1);
       const auto moments = computePressureMeanVarianceKokkos(solverData.m_pnGlobal, i1);
 #else
       const auto extrema = computePressureExtremaCPU(solverData.m_pnGlobal, i1);

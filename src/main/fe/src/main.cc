@@ -58,6 +58,18 @@ static void saveMetrics(const SemProxyMetrics& metrics)
   {
     output << "null";
   }
+  output << ",\n  \"extrema_comparison\": ";
+  if (metrics.extrema_backend.empty()) output << "null";
+  else
+    output << "{\"backend\": \"" << metrics.extrema_backend
+           << "\", \"execution_space\": \"" << metrics.execution_space
+           << "\", \"calls\": " << metrics.extrema_calls
+           << ", \"prepare_seconds\": " << metrics.extrema_prepare_seconds
+           << ", \"compute_seconds\": " << metrics.extrema_compute_seconds
+           << ", \"result_seconds\": " << metrics.extrema_result_seconds
+           << ", \"total_seconds\": " << metrics.extrema_total_seconds
+           << ", \"input_bytes\": " << metrics.extrema_input_bytes
+           << ", \"result_bytes\": " << metrics.extrema_result_bytes << "}";
   output << "\n}\n";
   output.close();
   if (!output) throw std::runtime_error("Cannot write metrics.json");
@@ -114,6 +126,9 @@ int main(int argc, char *argv[])
     if (result.count("help"))
     {
       std::cout << options.help() << std::endl;
+#ifdef USE_KOKKOS
+      std::cout << "Kokkos execution space: " << Kokkos::DefaultExecutionSpace::name() << std::endl;
+#endif
       exit(0);
     }
 
