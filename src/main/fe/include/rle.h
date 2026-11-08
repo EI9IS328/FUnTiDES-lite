@@ -16,6 +16,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include <ostream>
 
 /// A run of identical consecutive values.
 template <class T>
@@ -101,4 +102,22 @@ double rleRatio(std::size_t n, const std::vector<Run<T>>& runs)
   const std::size_t compressed = rleBytes(runs);
   return compressed == 0 ? 1.0
                          : static_cast<double>(n * sizeof(T)) / compressed;
+}
+
+/**
+ * @brief Writes runs in binary: run count (uint64), then value/count pairs.
+ *
+ * Fields are written one by one, so the file holds no padding and its size
+ * matches rleBytes() plus the 8-byte header.
+ */
+template <class T>
+void rleWrite(std::ostream& out, const std::vector<Run<T>>& runs)
+{
+  const std::uint64_t nRuns = runs.size();
+  out.write(reinterpret_cast<const char*>(&nRuns), sizeof(nRuns));
+  for (const Run<T>& run : runs)
+  {
+    out.write(reinterpret_cast<const char*>(&run.value), sizeof(T));
+    out.write(reinterpret_cast<const char*>(&run.count), sizeof(run.count));
+  }
 }
