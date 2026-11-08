@@ -110,9 +110,6 @@ try:
         requested = max([requested, *threads])
     if requested > limit:
         raise ValueError(f"{requested} threads demandés, seulement {limit} cœurs disponibles détectés")
-    for name in ("CPU_GPU_REPORT.md", "cpu_gpu_protocol.svg"):
-        if not (root / "benchmarks" / name).is_file():
-            raise ValueError(f"Fichier nécessaire à la comparaison CPU/GPU absent : {name}")
 except (ImportError, OSError, ValueError, KeyError, TypeError) as error:
     sys.exit(f"Prérequis non satisfaits : {error}")
 print("Prérequis Python, configurations et ressources CPU : OK", flush=True)

@@ -256,9 +256,6 @@ be checked locally.
 
 ## Comparaison des extrema CPU hôte / GPU
 
-Le protocole, les formules, les chronomètres et les limites sont détaillés dans
-[le rapport CPU/GPU](benchmarks/CPU_GPU_REPORT.md), avec
-[le schéma du protocole](benchmarks/cpu_gpu_protocol.svg).
 Le code est fourni ; la compilation et la validation CUDA restent à effectuer
 sur la machine GPU. Les vérifications locales ne constituent pas une mesure GPU.
 
@@ -277,9 +274,9 @@ mais le pilote `--compare-cpu-gpu` exige CUDA et refuse de le présenter comme G
 
 Pour trois tailles et cinq répétitions, 30 simulations sont lancées, sans
 snapshots bruts. Le dossier `results/extrema-cpu-vs-gpu/` contient
-`runs.csv`, `summary.csv`, `extrema.csv`, `cpu_gpu.html`, le rapport du protocole,
+`runs.csv`, `summary.csv`, `extrema.csv`, `cpu_gpu.html`,
 la configuration, l'environnement et les fichiers de chaque essai.
-La figure de comparaison et le schéma sont dans `figures/`.
+La figure de comparaison est dans `figures/`.
 La génération du rapport et des figures est hors des chronomètres.
 
 ## Strong scaling Kokkos/OpenMP

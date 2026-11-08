@@ -472,9 +472,7 @@ def write_extrema_html(output, summary, config):
         '<p>Les résultats des extrema à chaque pas sont dans extrema.csv, sans seuil arbitraire. '
         'Des simulations indépendantes ne garantissent pas des champs bit à bit identiques ; '
         'une différence entre résultats ne suffit pas à incriminer la réduction.</p>'
-        '<p>Schéma : <a href="figures/protocol.svg">protocole</a>. '
-        'Figure : <a href="figures/cpu_gpu_extrema.svg">calcul et coût total</a>. '
-        'Méthode complète : <a href="CPU_GPU_REPORT.md">rapport du protocole</a>.</p></html>')
+        '<p>Figure : <a href="figures/cpu_gpu_extrema.svg">calcul et coût total</a>.</p></html>')
     (output / "cpu_gpu.html").write_text(text, encoding="utf-8")
 
 
@@ -493,11 +491,6 @@ def compare_cpu_gpu(config_path, config, cases, help_text):
     figures = output / "figures"
     figures.mkdir()
     shutil.copyfile(config_path, output / "cpu_gpu_config.json")
-    source = Path(__file__).resolve().parent
-    report_text = (source / "CPU_GPU_REPORT.md").read_text(encoding="utf-8")
-    (output / "CPU_GPU_REPORT.md").write_text(
-        report_text.replace("(cpu_gpu_protocol.svg)", "(figures/protocol.svg)"), encoding="utf-8")
-    shutil.copyfile(source / "cpu_gpu_protocol.svg", figures / "protocol.svg")
     env = environment(config["executable"])
     env["execution_space"] = "Cuda"
     env["python"] = sys.version
