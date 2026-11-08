@@ -2,7 +2,6 @@
 """Measure fixed-problem strong scaling of the ad-hoc and in-situ workflows."""
 
 import argparse
-from datetime import datetime
 import json
 import math
 import os
@@ -174,7 +173,7 @@ def plot_results(summary, output, config, plt):
 
 
 def run_campaign(config_path, config, info, plt):
-    output = config_path.parent / "results" / datetime.now().strftime("tp2-strong-scaling-%Y%m%d-%H%M%S")
+    output = config_path.parent / "results" / "strong-scaling"
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(config_path, output / "strong_scaling_config.json")
     shutil.copyfile(config["receivers"], output / "receivers.txt")
@@ -210,7 +209,7 @@ def run_campaign(config_path, config, info, plt):
                     records.append({"data": kind, "elements": config["size"], "threads": p,
                                     "mode": mode, "repeat": repeat, "samples": actual_samples, **values})
                     write_csv(output / "runs.csv", records)
-    figures = output / "figure"
+    figures = output / "figures"
     figures.mkdir()
     plot_results(summarize(records), figures, config, plt)
     print(f"Campagne terminée : {output}\nFigures : {figures}")

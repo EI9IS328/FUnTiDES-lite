@@ -2,7 +2,6 @@
 """Measure OpenMP weak scaling with a constant number of elements per thread."""
 
 import argparse
-from datetime import datetime
 import json
 import math
 import os
@@ -123,7 +122,7 @@ def plot_results(summary, output, config, plt):
 
 
 def run_campaign(config_path, config, info, plt):
-    output = config_path.parent / "results" / datetime.now().strftime("tp2-weak-scaling-%Y%m%d-%H%M%S")
+    output = config_path.parent / "results" / "weak-scaling"
     output.mkdir(parents=True, exist_ok=False)
     shutil.copyfile(config_path, output / "weak_scaling_config.json")
     shutil.copyfile(config["receivers"], output / "receivers.txt")
@@ -165,7 +164,7 @@ def run_campaign(config_path, config, info, plt):
                                     "nodes_per_thread": node_count(config, case) / p,
                                     "mode": mode, "repeat": repeat, "samples": actual_samples, **values})
                     write_csv(output / "runs.csv", records)
-    figures = output / "figure"
+    figures = output / "figures"
     figures.mkdir()
     plot_results(summarize(records), figures, config, plt)
     print(f"Campagne terminée : {output}\nFigures : {figures}")

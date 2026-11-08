@@ -2,7 +2,6 @@
 
 import argparse
 import csv
-from datetime import datetime
 from html import escape
 import json
 import math
@@ -455,8 +454,8 @@ def write_extrema_html(output, summary, config):
         '<p>Les résultats des extrema à chaque pas sont dans extrema.csv, sans seuil arbitraire. '
         'Des simulations indépendantes ne garantissent pas des champs bit à bit identiques ; '
         'une différence entre résultats ne suffit pas à incriminer la réduction.</p>'
-        '<p>Schéma : <a href="figure/protocol.svg">protocole</a>. '
-        'Figure : <a href="figure/cpu_gpu_extrema.svg">calcul et coût total</a>. '
+        '<p>Schéma : <a href="figures/protocol.svg">protocole</a>. '
+        'Figure : <a href="figures/cpu_gpu_extrema.svg">calcul et coût total</a>. '
         'Méthode complète : <a href="CPU_GPU_REPORT.md">rapport du protocole</a>.</p></html>')
     (output / "cpu_gpu.html").write_text(text, encoding="utf-8")
 
@@ -471,15 +470,15 @@ def compare_cpu_gpu(config_path, config, cases, help_text):
     import matplotlib.pyplot as plt
     selected = [(case, n) for case in ("S", "M", "L") if case in cases
                 for n in config["sizes"][case]]
-    output = config_path.parent / "results" / datetime.now().strftime("tp2-cpu-gpu-%Y%m%d-%H%M%S")
+    output = config_path.parent / "results" / "extrema-cpu-vs-gpu"
     output.mkdir(parents=True, exist_ok=False)
-    figures = output / "figure"
+    figures = output / "figures"
     figures.mkdir()
     shutil.copyfile(config_path, output / "cpu_gpu_config.json")
     source = Path(__file__).resolve().parent
     report_text = (source / "CPU_GPU_REPORT.md").read_text(encoding="utf-8")
     (output / "CPU_GPU_REPORT.md").write_text(
-        report_text.replace("(cpu_gpu_protocol.svg)", "(figure/protocol.svg)"), encoding="utf-8")
+        report_text.replace("(cpu_gpu_protocol.svg)", "(figures/protocol.svg)"), encoding="utf-8")
     shutil.copyfile(source / "cpu_gpu_protocol.svg", figures / "protocol.svg")
     env = environment(config["executable"])
     env["execution_space"] = "Cuda"
@@ -558,7 +557,9 @@ def main():
             fields=len(range(0,steps,k))*repetitions+sum(len(range(0,steps,v)) for v in config["precision_intervals"] if v!=k)
             mb=sum((n*config["parameters"]["order"]+1)**3*20*fields/1e6 for _,n in selected)
             print(f"Volume approximatif de snapshots bruts conservés : {mb/1000:.2f} GB")
-        output=config_path.parent/"results"/datetime.now().strftime("tp2-%Y%m%d-%H%M%S")
+        backend=next((line.partition(":")[2].strip().lower() for line in help_result.stdout.splitlines()
+                      if line.startswith("Kokkos execution space:")),"vector")
+        output=config_path.parent/"results"/f"ad-hoc-vs-in-situ-{backend}"
         output.mkdir(parents=True,exist_ok=False)
         shutil.copyfile(config_path,output/"compare_config.json")
         shutil.copyfile(config["receivers"],output/"receivers.txt")
@@ -593,7 +594,7 @@ def main():
                         precision.append(precision_row(dense,sparse,case,n,interval,dense_samples))
                         save_results(output,records,validation,precision)
         summary=save_results(output,records,validation,precision)
-        figures = output / "figure"
+        figures = output / "figures"
         figures.mkdir()
         plot_results(summary,figures,config,plt)
         for dense,sparse,n,k in peak_inputs:

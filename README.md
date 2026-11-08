@@ -77,6 +77,77 @@ The following options can be used to configure your build:
 
 ---
 
+## Lancement complet des mesures TP2
+
+Depuis la racine, après activation de votre environnement Python :
+
+```sh
+bash benchmarks/run_tp2.sh
+```
+
+Le script ne prend aucun argument. La campagne complète nécessite CMake avec
+l'option `--fresh`, Make, un compilateur C++, NumPy/Matplotlib, le sous-module
+Kokkos, le toolkit
+CUDA (`nvcc`) et un GPU NVIDIA accessible (`nvidia-smi`). Il vérifie les
+prérequis, les chemins des exécutables dans les quatre JSON et les ressources
+CPU avant le nettoyage. Aucune dépendance n'est installée automatiquement.
+
+Il supprime `build/` **une seule fois, au début**, compile `semproxy` en
+Release/Kokkos/OpenMP, puis exécute strong scaling et weak scaling. Il
+reconfigure ensuite **le même dossier `build/`** avec `cmake --fresh` pour
+Release/Kokkos/CUDA, recompile, puis lance la comparaison ad-hoc/in-situ et les
+extrema CPU/GPU. `--fresh` réinitialise le cache et les métadonnées CMake pour
+changer de compilateur ; le dossier `build/` n'est pas supprimé une deuxième
+fois. Il n'y a aucun sous-dossier de compilation `build/openmp/` ou
+`build/cuda/` ; les quatre JSON gardent `../build/bin/semproxy`.
+Les campagnes sont successives ; une erreur interrompt le lancement.
+Compilation, nettoyage et contrôles sont hors des chronomètres des mesures.
+À la fin, `build/bin/semproxy` utilise CUDA. Aucun fichier CMake n'est modifié.
+
+Les paramètres restent dans les quatre JSON de `benchmarks/`. Pour le workflow
+CUDA, `OMP_NUM_THREADS` est conservé s'il est défini, sinon il vaut 1 ; les
+bibliothèques numériques sont limitées à un thread. Les pilotes strong/weak
+définissent eux-mêmes leurs pools de simulation. Avec les configurations
+fournies, le lancement prévoit **265 simulations**, environ **248 GB de
+snapshots bruts conservés**, hors statistiques et logs. Il faut adapter les
+configurations à la machine avant de lancer ; les estimations utilisent les
+pas nominaux et les compteurs mesurés restent la référence.
+
+Les quatre dossiers de sortie sont fixes, sans date :
+
+```text
+benchmarks/results/
+├── strong-scaling/
+├── weak-scaling/
+├── ad-hoc-vs-in-situ-cuda/
+└── extrema-cpu-vs-gpu/
+```
+
+Chaque dossier contient `figures/`, ses CSV, sa configuration, l'environnement
+et les fichiers des essais. **À chaque relance, l'ancienne campagne concernée
+est entièrement remplacée juste avant sa nouvelle exécution.** Ses anciens
+fichiers sont supprimés pour éviter de mélanger des essais de configurations
+différentes. Les nouveaux résultats restent disponibles après l'exécution.
+Les autres dossiers de résultats sont conservés. Les noms restent fixes.
+Le lanceur refuse les liens symboliques pour `build/`, `results/` et les
+quatre dossiers ciblés. Lancés directement, les scripts Python refusent aussi
+un dossier de campagne déjà existant.
+
+Pour estimer le stockage avant de lancer, sans GPU ni compilation :
+
+```sh
+python3 benchmarks/estimate_tp2_storage.py
+```
+
+Cet outil lit les quatre JSON et affiche une ligne par configuration : volume
+des snapshots, des sismogrammes et leur total, puis la somme des quatre.
+Il inclut les répétitions et les sorties de précision de `compare.py`.
+Il estime les nouvelles données brutes conservées, hors JSON, CSV, logs,
+figures, `build/`, gestion du système de fichiers et résultats déjà présents.
+Le zéro de la campagne CPU/GPU signifie zéro donnée brute ; ses statistiques
+et figures occupent aussi du stockage. Les arrondis float32 du simulateur
+peuvent légèrement modifier le nombre réel de pas et le volume.
+
 ## TP2: separate snapshot and sismogram comparisons
 
 Rebuild `semproxy` after these C++ changes. The new simulation option is
@@ -119,8 +190,9 @@ The script prints the simulation count and estimated raw snapshot storage;
 saving at k=1 can require substantial space. With default configuration, group S
 and both data types run 25 simulations (20 timing + 5 precision).
 
-Dated `benchmarks/results/tp2-*` directories contain independent runs, logs,
-configuration/environment copies and progressive CSV files:
+The fixed `benchmarks/results/ad-hoc-vs-in-situ-<backend>/` directory contains
+independent runs, logs, configuration/environment copies and progressive CSV
+files. `<backend>` is the actual backend, such as `cuda`, `openmp` or `vector`:
 
 - `runs.csv`: every timed run; `summary.csv`: medians by type, size and mode.
 - `validation.csv`: paired statistics and absolute differences, without an
@@ -128,7 +200,7 @@ configuration/environment copies and progressive CSV files:
 - `precision.csv`: actual snapshot peaks and temporal means for each k and the
   in-situ reference; not a physical exact solution.
 
-After all measurements, the script puts SVGs in the campaign's `figure/`
+After all measurements, the script puts SVGs in the campaign's `figures/`
 subdirectory. CSVs and `statistics.html` remain at the campaign root:
 
 - `costs_snapshots.svg`, `costs_sismograms.svg`: log time axis, separate raw
@@ -174,10 +246,10 @@ Kokkos/OpenMP permet de vérifier les chemins localement après compilation,
 mais le pilote `--compare-cpu-gpu` exige CUDA et refuse de le présenter comme GPU.
 
 Pour trois tailles et cinq répétitions, 30 simulations sont lancées, sans
-snapshots bruts. Les nouvelles campagnes `results/tp2-cpu-gpu-*` contiennent
+snapshots bruts. Le dossier `results/extrema-cpu-vs-gpu/` contient
 `runs.csv`, `summary.csv`, `extrema.csv`, `cpu_gpu.html`, le rapport du protocole,
 la configuration, l'environnement et les fichiers de chaque essai.
-La figure de comparaison et le schéma sont dans `figure/`.
+La figure de comparaison et le schéma sont dans `figures/`.
 La génération du rapport et des figures est hors des chronomètres.
 
 ## Strong scaling Kokkos/OpenMP
@@ -232,7 +304,7 @@ Le JSON de statistiques est inclus dans les deux approches. La lecture des
 rapports, les contrôles et la génération des figures sont hors de ce temps.
 Les sorties de processus sont redirigées vers leurs logs dans les deux cas.
 
-Les résultats sont dans `benchmarks/results/tp2-strong-scaling-…/` :
+Les résultats sont dans `benchmarks/results/strong-scaling/` :
 
 - `runs.csv` : toutes les mesures individuelles, avec nombre de threads,
   approche, répétition, type de données et compteurs de calcul/analyse/E/S ;
@@ -240,7 +312,7 @@ Les résultats sont dans `benchmarks/results/tp2-strong-scaling-…/` :
   compilation, versions Python/NumPy/Matplotlib et réglages des sous-processus ;
 - un dossier par exécution contenant logs, métriques, statistiques et données
   brutes éventuelles ; aucun fichier brut n'est supprimé par le pilote ;
-- `figure/strong_scaling_snapshots.svg` et `figure/strong_scaling_sismograms.svg`.
+- `figures/strong_scaling_snapshots.svg` et `figures/strong_scaling_sismograms.svg`.
 
 Chaque figure contient trois panneaux selon le nombre de threads `p` :
 temps médian du workflow `T(p)`, accélération `S(p)=T(1)/T(p)` et efficacité
@@ -305,12 +377,12 @@ de précision supplémentaires. Environ **7,54 GB de snapshots bruts** sont
 conservés avec cette configuration ; cette estimation utilise les pas nominaux.
 Les ressources disponibles doivent couvrir la liste de threads configurée.
 
-Les sorties sont dans `benchmarks/results/tp2-weak-scaling-…/` :
+Les sorties sont dans `benchmarks/results/weak-scaling/` :
 
 - `runs.csv` : mesures individuelles, dimensions, éléments/nœuds par thread,
   temps du workflow et compteurs de calcul, analyse et E/S ;
 - configuration, récepteurs, environnement et dossiers de chaque essai ;
-- `figure/weak_scaling_snapshots.svg` et `figure/weak_scaling_sismograms.svg`.
+- `figures/weak_scaling_snapshots.svg` et `figures/weak_scaling_sismograms.svg`.
 
 Chaque figure comporte deux panneaux : temps médian `T(p)` et efficacité faible
 `100*T(1)/T(p)`. Chaque approche utilise sa propre référence à un thread ; il
