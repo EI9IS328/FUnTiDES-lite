@@ -6,6 +6,7 @@
 //************************************************************************
 
 #include "sem_proxy.h"
+#include "pressure_statistics.h"
 
 #include <cartesian_struct_builder.h>
 #include <cartesian_unstruct_builder.h>
@@ -13,21 +14,38 @@
 #include <source_and_receiver_utils.h>
 
 #include <cxxopts.hpp>
-#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <variant>
 #include <cmath>
+#include <cstdint>
 
 #include <filesystem>
 #include <fstream>
-#include <limits>
+#include <iomanip>
 
 using namespace SourceAndReceiverUtils;
 
+// Shared field names for snapshot and receiver results, matching analyze.py.
+static void writePressureStatistics(std::ostream& output,
+                                   const PressureExtrema& extrema,
+                                   const PressureMeanVariance& moments)
+{
+  output << "        \"minimum_pressure\": " << extrema.minimum_pressure << ",\n"
+         << "        \"maximum_pressure\": " << extrema.maximum_pressure << ",\n"
+         << "        \"maximum_absolute_pressure\": "
+         << extrema.maximum_absolute_pressure << ",\n"
+         << "        \"mean_pressure\": " << moments.mean_pressure << ",\n"
+         << "        \"pressure_variance\": " << moments.pressure_variance << "\n";
+}
+
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
-  is_snapshots_ = opt.is_snapshots_;
+  is_in_situ_ = opt.mode == "in-situ";
+  extrema_backend_ = opt.extrema_backend;
+  process_snapshots_ = opt.outputs != "sismograms";
+  process_sismograms_ = opt.outputs != "snapshots";
+  is_snapshots_ = opt.is_snapshots_ && !is_in_situ_ && process_snapshots_;
   snap_time_interval_ = opt.snap_time_interval_;
   snap_folder_ = opt.snap_folder_;
 
@@ -58,7 +76,12 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   rcv_coord_[1] = opt.rcvy;
   rcv_coord_[2] = opt.rcvz;
 
-  if (opt.recepteur_file_.empty())
+  if (!process_sismograms_)
+    {
+      // An isolated snapshot workflow has no receiver interpolation or history.
+      receiver_coords_.clear();
+    }
+  else if (opt.recepteur_file_.empty())
     {
       receiver_coords_.push_back(rcv_coord_);
     }
@@ -161,6 +184,9 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
     dt_ = opt.dt;
   }
   timemax_ = opt.timemax;
+  if (is_in_situ_ && (!std::isfinite(dt_) || dt_ <= 0 ||
+                     !std::isfinite(timemax_) || timemax_ < dt_))
+    throw std::runtime_error("In-situ statistics require a finite positive dt and timemax >= dt");
   num_sample_ = timemax_ / dt_;
 
   m_solver = SolverFactory::createSolver(methodType, implemType, meshType,
@@ -188,31 +214,138 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
 
 void SEMproxy::run()
 {
-  time_point<system_clock> startComputeTime, startOutputTime, totalComputeTime,
-      totalOutputTime;
+  using Clock = std::chrono::steady_clock;
+  metrics_ = {};
+  metrics_.in_situ = is_in_situ_;
+  metrics_.outputs = process_snapshots_ ? (process_sismograms_ ? "both" : "snapshots")
+                                       : "sismograms";
+  metrics_.sample_count = num_sample_;
+  metrics_.extrema_backend = extrema_backend_;
+#ifdef USE_KOKKOS
+  metrics_.execution_space = Kokkos::DefaultExecutionSpace::name();
+  std::unique_ptr<PressureExtremaWorkspace> extrema_workspace;
+  if (!extrema_backend_.empty())
+    extrema_workspace = std::make_unique<PressureExtremaWorkspace>(
+        m_mesh->getNumberOfNodes(), extrema_backend_ == "cpu");
+#endif
 
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
 
+  std::ofstream statistics;
+  const char* statistics_path = "statistics_in-situ.json";
+  bool first_snapshot = true;
+  PressureExtrema global_extrema{};
+  std::vector<PressureExtrema> receiver_extrema;
+  std::vector<WelfordState> receiver_moments;
+  std::vector<float> receiver_pressures;
+  if (is_in_situ_)
+  {
+    // O(receivers) storage, independent of the number of simulated time steps.
+    receiver_extrema.resize(receiver_coords_.size());
+    receiver_moments.resize(receiver_coords_.size());
+    receiver_pressures.resize(receiver_coords_.size());
+    const auto startWriteTime = Clock::now();
+    statistics.open(statistics_path);
+    if (!statistics) throw std::runtime_error("Cannot open in-situ statistics file");
+    statistics << std::setprecision(17) << "{\n  \"snapshots\": ";
+    if (process_snapshots_)
+      statistics << "{\n    \"per_snapshot\": [";
+    else
+      statistics << "null";
+    if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+    metrics_.statistics_write_seconds +=
+        std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+  }
+
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
   {
-    startComputeTime = system_clock::now();
+    auto startComputeTime = Clock::now();
+    // computeOneStep attend déjà la fin des kernels Kokkos avec FENCE.
     m_solver->computeOneStep(dt_, indexTimeSample, solverData);
-    totalComputeTime += system_clock::now() - startComputeTime;
-
-    startOutputTime = system_clock::now();
+    metrics_.compute_seconds +=
+        std::chrono::duration<double>(Clock::now() - startComputeTime).count();
     
-    if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+    if (is_in_situ_ && process_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+    {
+      const auto startAnalysisTime = Clock::now();
+      // Read the solver's current buffer directly, including in Vector builds.
+#ifdef USE_KOKKOS
+      PressureExtrema extrema;
+      if (extrema_workspace)
+      {
+        const auto measured = extrema_workspace->measure(solverData.m_pnGlobal, i1);
+        extrema = measured.values;
+        metrics_.extrema_prepare_seconds += measured.prepare_seconds;
+        metrics_.extrema_compute_seconds += measured.compute_seconds;
+        metrics_.extrema_result_seconds += measured.result_seconds;
+        metrics_.extrema_total_seconds += measured.total_seconds;
+        metrics_.extrema_input_bytes += measured.input_bytes;
+        metrics_.extrema_result_bytes += measured.result_bytes;
+        ++metrics_.extrema_calls;
+      }
+      else
+        extrema = computePressureExtremaKokkos(solverData.m_pnGlobal, i1);
+      const auto moments = computePressureMeanVarianceKokkos(solverData.m_pnGlobal, i1);
+#else
+      const auto extrema = computePressureExtremaCPU(solverData.m_pnGlobal, i1);
+      const auto moments = computePressureMeanVarianceCPU(solverData.m_pnGlobal, i1);
+#endif
+      if (first_snapshot)
+      {
+        global_extrema = extrema;
+      }
+      else
+      {
+        global_extrema.minimum_pressure =
+            std::min(global_extrema.minimum_pressure, extrema.minimum_pressure);
+        global_extrema.maximum_pressure =
+            std::max(global_extrema.maximum_pressure, extrema.maximum_pressure);
+        global_extrema.maximum_absolute_pressure =
+            std::max(global_extrema.maximum_absolute_pressure, extrema.maximum_absolute_pressure);
+      }
+      metrics_.snapshot_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+
+      // Stream reduced results instead of retaining a history of pressure fields.
+      const auto startWriteTime = Clock::now();
+      statistics << (first_snapshot ? "\n" : ",\n")
+                 << "      {\n        \"timestep_index\": " << indexTimeSample << ",\n"
+                 << "        \"time_seconds\": "
+                 << (indexTimeSample + 1) * static_cast<double>(dt_) << ",\n"
+                 << "        \"node_count\": " << m_mesh->getNumberOfNodes() << ",\n";
+      writePressureStatistics(statistics, extrema, moments);
+      statistics << "      }";
+      if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+      metrics_.statistics_write_seconds +=
+          std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+      first_snapshot = false;
+    }
+    else if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+    {
+      const auto startSnapshotTime = Clock::now();
+      // Vector : le solveur possède une copie distincte du champ de pression.
+      // La recopier ici pour que saveSnapshot lise les résultats calculés.
+      // Kokkos : les vues partagent déjà les données, aucune copie n'est requise.
+#ifdef USE_VECTOR
+      pnGlobal = solverData.m_pnGlobal;
+#endif
       saveSnapshot(indexTimeSample);
+      // La préparation de la sortie (copie Vector incluse) est comptabilisée.
+      metrics_.snapshot_write_seconds +=
+          std::chrono::duration<double>(Clock::now() - startSnapshotTime)
+              .count();
+    }
 
     if (indexTimeSample % 50 == 0)
     {
       m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
-                                     pnGlobal, "pnGlobal");
+                                     solverData.m_pnGlobal, "pnGlobal");
     }
 
-    // Save pressure at receiver
+    // Interpolation is common to both workflows; analysis is timed separately.
+    startComputeTime = Clock::now();
     const int order = m_mesh->getOrder();
 
     for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
@@ -228,11 +361,42 @@ void SEMproxy::run()
           int globalNodeOnElement =
               i + j * (order + 1) + k * (order + 1) * (order + 1);
           varnp1 +=
-              pnGlobal(nodeIdx, i1) * rhsWeightsRcv(r, globalNodeOnElement);
+              solverData.m_pnGlobal(nodeIdx, i1) *
+              rhsWeightsRcv(r, globalNodeOnElement);
         }
       }
         }
-       pnAtReceiver(r, indexTimeSample) = varnp1;
+      if (is_in_situ_)
+        receiver_pressures[r] = varnp1;
+      else
+        pnAtReceiver(r, indexTimeSample) = varnp1;
+    }
+
+    if (is_in_situ_ && process_sismograms_)
+    {
+      metrics_.compute_seconds +=
+          std::chrono::duration<double>(Clock::now() - startComputeTime).count();
+      const auto startAnalysisTime = Clock::now();
+      for (std::size_t r = 0; r < receiver_coords_.size(); ++r)
+      {
+        const double value = receiver_pressures[r];
+        auto& extrema = receiver_extrema[r];
+        if (receiver_moments[r].count == 0)
+        {
+          extrema = {value, value, std::abs(value)};
+        }
+        else
+        {
+          extrema.minimum_pressure = std::min(extrema.minimum_pressure, value);
+          extrema.maximum_pressure = std::max(extrema.maximum_pressure, value);
+          extrema.maximum_absolute_pressure =
+              std::max(extrema.maximum_absolute_pressure, std::abs(value));
+        }
+        receiver_moments[r].update(value);
+      }
+      metrics_.sismogram_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+      startComputeTime = Clock::now();
     }
 
     swap(i1, i2);
@@ -241,38 +405,92 @@ void SEMproxy::run()
     solverData.m_i1 = solverData.m_i2;
     solverData.m_i2 = tmp;
 
-    totalOutputTime += system_clock::now() - startOutputTime;
+    metrics_.compute_seconds +=
+        std::chrono::duration<double>(Clock::now() - startComputeTime).count();
   }
 
 
-  startOutputTime = system_clock::now();
-  std::ofstream sismos("sismos.csv");
-  if (!sismos) throw std::runtime_error("Cannot open sismos.csv");
-  sismos << "time";
-  for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
-    sismos << ",receiver_" << r;
-  sismos << '\n' << std::setprecision(std::numeric_limits<float>::max_digits10);
-  for (int sample = 0; sample < num_sample_; ++sample)
+  if (!is_in_situ_ && process_sismograms_)
+  {
+    const auto startSismogramTime = Clock::now();
+    std::ofstream sismos("sismos.bin", std::ios::binary);
+    if (!sismos) throw std::runtime_error("Cannot open sismos.bin");
+    // Format natif : deux int32 (récepteurs, échantillons), puis pour chaque
+    // échantillon des float32 (temps, pression de chaque récepteur).
+    const std::int32_t dimensions[2] = {
+        static_cast<std::int32_t>(receiver_coords_.size()),
+        static_cast<std::int32_t>(num_sample_)};
+    sismos.write(reinterpret_cast<const char*>(dimensions), sizeof(dimensions));
+    for (int sample = 0; sample < num_sample_; ++sample)
     {
-      sismos << (sample + 1) * dt_;
+      const float time = (sample + 1) * dt_;
+      sismos.write(reinterpret_cast<const char*>(&time), sizeof(time));
       for (int r = 0; r < static_cast<int>(receiver_coords_.size()); ++r)
-        sismos << ',' << pnAtReceiver(r, sample);
-      sismos << '\n';
+      {
+        const float pressure = pnAtReceiver(r, sample);
+        sismos.write(reinterpret_cast<const char*>(&pressure), sizeof(pressure));
+      }
     }
-  sismos.close();
-  if (!sismos) throw std::runtime_error("Cannot write sismos.csv");
+    sismos.close();
+    if (!sismos) throw std::runtime_error("Cannot write sismos.bin");
 
-  totalOutputTime += system_clock::now() - startOutputTime;
-  float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
-                            .time_since_epoch()
-                            .count();
-  float outputtime_ms =
-      time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
+    metrics_.sismogram_write_seconds =
+        std::chrono::duration<double>(Clock::now() - startSismogramTime).count();
+    metrics_.sismogram_mb =
+        static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
+  }
+  else if (is_in_situ_)
+  {
+    std::vector<PressureMeanVariance> receiver_results;
+    if (process_sismograms_)
+    {
+      const auto startAnalysisTime = Clock::now();
+      receiver_results.reserve(receiver_coords_.size());
+      for (const auto& state : receiver_moments)
+        receiver_results.push_back(finalizePressureMeanVariance(state));
+      metrics_.sismogram_analysis_seconds +=
+          std::chrono::duration<double>(Clock::now() - startAnalysisTime).count();
+    }
+
+    const auto startWriteTime = Clock::now();
+    if (process_snapshots_)
+      statistics << "\n    ],\n    \"global_extrema\": {\n"
+               << "      \"minimum_pressure\": " << global_extrema.minimum_pressure << ",\n"
+               << "      \"maximum_pressure\": " << global_extrema.maximum_pressure << ",\n"
+               << "      \"maximum_absolute_pressure\": "
+               << global_extrema.maximum_absolute_pressure << "\n"
+               << "    }\n  }";
+    statistics << ",\n  \"sismograms\": ";
+    if (process_sismograms_)
+      statistics << "{\n    \"per_receiver\": [\n";
+    else
+      statistics << "null";
+    for (std::size_t r = 0; r < receiver_coords_.size(); ++r)
+    {
+      if (r != 0) statistics << ",\n";
+      statistics << "      {\n        \"receiver_index\": " << r << ",\n"
+                 << "        \"sample_count\": " << receiver_moments[r].count << ",\n";
+      writePressureStatistics(statistics, receiver_extrema[r], receiver_results[r]);
+      statistics << "      }";
+    }
+    if (process_sismograms_)
+      statistics << "\n    ]\n  }";
+    statistics << "\n}\n";
+    statistics.close();
+    if (!statistics) throw std::runtime_error("Cannot write in-situ statistics file");
+    metrics_.statistics_mb =
+        static_cast<double>(std::filesystem::file_size(statistics_path)) / 1e6;
+    metrics_.statistics_write_seconds +=
+        std::chrono::duration<double>(Clock::now() - startWriteTime).count();
+  }
 
   cout << "------------------------------------------------ " << endl;
-  cout << "\n---- Elapsed Kernel Time : " << kerneltime_ms / 1E6 << " seconds."
-       << endl;
-  cout << "---- Elapsed Output Time : " << outputtime_ms / 1E6 << " seconds."
+  cout << "\n---- Elapsed Compute Time : " << metrics_.compute_seconds
+       << " seconds." << endl;
+  cout << "---- Elapsed Snapshot Write Time : "
+       << metrics_.snapshot_write_seconds << " seconds." << endl;
+  cout << "---- Elapsed Sismogram Write Time : "
+       << metrics_.sismogram_write_seconds << " seconds."
        << endl;
   cout << "------------------------------------------------ " << endl;
 }
@@ -288,8 +506,10 @@ void SEMproxy::init_arrays()
   myRHSTerm = allocateArray2D<arrayReal>(myNumberOfRHS, num_sample_, "RHSTerm");
   pnGlobal =
       allocateArray2D<arrayReal>(m_mesh->getNumberOfNodes(), 2, "pnGlobal");
+  if (!process_sismograms_) return;
   const int numberOfReceivers = static_cast<int>(receiver_coords_.size());
-  pnAtReceiver = allocateArray2D<arrayReal>(numberOfReceivers, num_sample_, "pnAtReceiver");
+  if (!is_in_situ_)
+    pnAtReceiver = allocateArray2D<arrayReal>(numberOfReceivers, num_sample_, "pnAtReceiver");
   // Receiver
   rhsElementRcv = allocateVector<vectorInt>(numberOfReceivers, "rhsElementRcv");
   rhsWeightsRcv = allocateArray2D<arrayReal>(
@@ -376,6 +596,8 @@ void SEMproxy::init_source()
     default:
       throw std::runtime_error("Unsupported order: " + std::to_string(order));
   }
+
+  if (!process_sismograms_) return;
 
   // Receiver computation
   // int receiver_index = floor((rcv_coord_[0] * ex) / lx) +
@@ -478,24 +700,25 @@ float SEMproxy::find_cfl_dt(float cfl_factor)
 void SEMproxy::saveSnapshot(int timestep)
 {
   const auto path = std::filesystem::path(snap_folder_) /
-                    ("snapshot_" + std::to_string(timestep) + ".csv");
-  std::ofstream output(path);
+    ("snapshot_" + std::to_string(timestep) + ".bin");
+  std::ofstream output(path, std::ios::binary);
   if (!output)
     throw std::runtime_error("Cannot open snapshot file: " + path.string());
 
-  output << "node,x,y,z,pressure\n";
-  output << std::setprecision(std::numeric_limits<float>::max_digits10);
-
   for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
     {
-      output << node << ','
-             << m_mesh->nodeCoord(node, 0) << ','
-             << m_mesh->nodeCoord(node, 1) << ','
-             << m_mesh->nodeCoord(node, 2) << ','
-             << pnGlobal(node, i1) << '\n';
+      const std::int32_t nodeId = node;
+      const float values[4] = {m_mesh->nodeCoord(node, 0),
+                               m_mesh->nodeCoord(node, 1),
+                               m_mesh->nodeCoord(node, 2), pnGlobal(node, i1)};
+      output.write(reinterpret_cast<const char*>(&nodeId), sizeof(nodeId));
+      output.write(reinterpret_cast<const char*>(values), sizeof(values));
     }
   
   output.close();
   if (!output)
     throw std::runtime_error("Cannot write snapshot file: " + path.string());
+  // Compter uniquement les fichiers sauvegardés pendant cette exécution.
+  metrics_.snapshot_mb +=
+      static_cast<double>(std::filesystem::file_size(path)) / 1e6;
 }

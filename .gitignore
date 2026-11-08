@@ -269,6 +269,7 @@ external/kokkos
 external/pykokkos-base
 
 *.svg
+!benchmarks/cpu_gpu_protocol.svg
 snap*.png
 receiver.dat
 

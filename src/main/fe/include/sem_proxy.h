@@ -21,6 +21,29 @@
 
 #include "sem_proxy_options.h"
 
+// Temps en secondes ; volumes en MB (1 MB = 1 000 000 octets).
+struct SemProxyMetrics
+{
+  double total_seconds = 0;
+  double compute_seconds = 0;
+  double snapshot_write_seconds = 0;
+  double sismogram_write_seconds = 0;
+  double snapshot_mb = 0;
+  double sismogram_mb = 0;
+  bool in_situ = false;
+  std::string outputs = "both";
+  int sample_count = 0;
+  std::string extrema_backend;
+  std::string execution_space;
+  double extrema_prepare_seconds = 0, extrema_compute_seconds = 0;
+  double extrema_result_seconds = 0, extrema_total_seconds = 0;
+  std::size_t extrema_input_bytes = 0, extrema_result_bytes = 0, extrema_calls = 0;
+  double snapshot_analysis_seconds = 0;
+  double sismogram_analysis_seconds = 0;
+  double statistics_write_seconds = 0;
+  double statistics_mb = 0;
+};
+
 /**
  * @class SEMproxy
  */
@@ -55,6 +78,8 @@ class SEMproxy
    */
   void run();
 
+  const SemProxyMetrics& getMetrics() const { return metrics_; }
+
   /**
    * @brief Computes optimal time step using CFL stability condition for seismic
    * wave propagation
@@ -78,6 +103,11 @@ class SEMproxy
   void saveSnapshot(int timestep);
 
  private:
+  SemProxyMetrics metrics_;
+  bool is_in_situ_ = false;
+  std::string extrema_backend_;
+  bool process_snapshots_ = true;
+  bool process_sismograms_ = true;
   int i1 = 0;
   int i2 = 1;
 

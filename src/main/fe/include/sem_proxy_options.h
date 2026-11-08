@@ -16,6 +16,9 @@ class SemProxyOptions
   std::string implem = "makutu";  // makutu|shiva
   std::string method = "sem";     // sem|dg
   std::string mesh = "cartesian";
+  std::string mode = "ad-hoc";
+  std::string outputs = "both";
+  std::string extrema_backend;  // Empty preserves the existing automatic path.
   float dt = 0.001;
   float timemax = 1.5;
   bool autodt = false;
@@ -34,14 +37,28 @@ class SemProxyOptions
   
   void validate() const
   {
+    if (mode != "ad-hoc" && mode != "in-situ")
+      throw std::runtime_error("mode must be ad-hoc or in-situ");
+    if (outputs != "both" && outputs != "snapshots" && outputs != "sismograms")
+      throw std::runtime_error("outputs must be both, snapshots or sismograms");
+    if (!extrema_backend.empty())
+    {
+      if (extrema_backend != "cpu" && extrema_backend != "kokkos")
+        throw std::runtime_error("extrema-backend must be cpu or kokkos");
+      if (mode != "in-situ" || outputs != "snapshots")
+        throw std::runtime_error("extrema-backend requires in-situ and snapshots-only outputs");
+#ifndef USE_KOKKOS
+      throw std::runtime_error("Measured extrema require a Kokkos build");
+#endif
+    }
     if (order < 1) throw std::runtime_error("order must be >= 1");
     if (ex <= 0 || ey <= 0 || ez <= 0)
       throw std::runtime_error("ex/ey/ez must be > 0");
     if (lx <= 0 || ly <= 0 || lz <= 0)
       throw std::runtime_error("lx/ly/lz must be > 0");
-    if (is_snapshots_ && snap_time_interval_ <= 0)
+    if ((is_snapshots_ || mode == "in-situ") && snap_time_interval_ <= 0)
       throw std::runtime_error("snapshot interval must be > 0");
-    if (is_snapshots_ && snap_folder_.empty())
+    if (mode == "ad-hoc" && is_snapshots_ && snap_folder_.empty())
       throw std::runtime_error("snapshot folder must not be empty");
   }
 
@@ -64,6 +81,12 @@ class SemProxyOptions
         "method", "Method: sem|dg", cxxopts::value<std::string>(o.method))(
         "mesh", "Mesh: cartesian|ucartesian",
         cxxopts::value<std::string>(o.mesh))(
+        "mode", "Analysis workflow: ad-hoc (default) | in-situ",
+        cxxopts::value<std::string>(o.mode))(
+        "outputs", "Outputs/analyses to enable: both (default) | snapshots | sismograms",
+        cxxopts::value<std::string>(o.outputs))(
+        "extrema-backend", "Measured snapshot extrema: cpu | kokkos (default: automatic, uninstrumented)",
+        cxxopts::value<std::string>(o.extrema_backend))(
         "dt", "Time step selection in s (default = 0.001s)",
         cxxopts::value<float>(o.dt))(
         "timemax", "Duration of the simulation in s (default = 1.5s)",
@@ -81,9 +104,9 @@ class SemProxyOptions
         "(false)",
         cxxopts::value<bool>(o.isModelOnNodes))(
         "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic))(
-        "is-snapshots", "Save pressure snapshots",
+        "is-snapshots", "Save pressure snapshots in ad-hoc mode",
         cxxopts::value<bool>(o.is_snapshots_))(
-        "snap-time-interval", "Number of time steps between snapshots",
+        "snap-time-interval", "Steps between snapshot writes (ad-hoc) or field analyses (in-situ)",
         cxxopts::value<int>(o.snap_time_interval_))(
         "snap-folder", "Directory for snapshot files",
         cxxopts::value<std::string>(o.snap_folder_))(

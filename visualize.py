@@ -1,39 +1,73 @@
 #!/usr/bin/env python3
-"""Plot SEM proxy sismos and horizontal snapshot slices."""
+"""Plot SEM proxy binary sismos and horizontal binary snapshot slices."""
 
 import argparse
-import csv
+import json
 from pathlib import Path
+from time import perf_counter
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from analyze import load_metrics
 
-def plot_sismos(csv_path, output):
-    with csv_path.open(newline="") as source:
-        names = next(csv.reader(source))
-    values = np.loadtxt(csv_path, delimiter=",", skiprows=1, ndmin=2)
-    if names[0] != "time" or len(names) < 2 or values.shape[1] != len(names):
-        raise ValueError("Expected: time,receiver_0,receiver_1,...")
 
+def save_metrics(section, values):
+    # Simulation et visualisations partagent le rapport du dossier courant.
+    path = Path("metrics.json")
+    metrics = load_metrics()
+    metrics["ad_hoc"]["visualization"][section] = values
+    path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
+
+
+def plot_sismos(bin_path, output):
+    start_read = perf_counter()
+    # Native format: int32 receiver/sample counts, then float32 time + pressures.
+    with bin_path.open("rb") as source:
+        dimensions = np.fromfile(source, dtype="=i4", count=2)
+        if dimensions.size != 2 or np.any(dimensions <= 0):
+            raise ValueError("Expected positive receiver and sample counts")
+        receivers, samples = map(int, dimensions)
+        if bin_path.stat().st_size != 8 + 4 * samples * (receivers + 1):
+            raise ValueError("Sismogram file size does not match its dimensions")
+        values = np.fromfile(source, dtype="=f4")
+    read_seconds = perf_counter() - start_read
+
+    start_analysis = perf_counter()
+    values = values.reshape(samples, receivers + 1)
+    times = values[:, 0]
+    pressures = values[:, 1:]
+    preparation_seconds = perf_counter() - start_analysis
+
+    start_visualization = perf_counter()
     fig, ax = plt.subplots()
-    for column, name in enumerate(names[1:], start=1):
-        ax.plot(values[:, 0], values[:, column], label=name)
+    for receiver in range(receivers):
+        ax.plot(times, pressures[:, receiver], label=f"receiver_{receiver}")
     ax.set(xlabel="Temps (s)", ylabel="Pression", title="Sismogrammes")
     ax.grid(True)
     ax.legend()
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, bbox_inches="tight")
     plt.close(fig)
+    render_seconds = perf_counter() - start_visualization
+    save_metrics("sismograms", {
+        "read_seconds": read_seconds,
+        "preparation_seconds": preparation_seconds,
+        "render_seconds": render_seconds,
+    })
     print(output)
 
 
 def load_snapshot(path):
-    # CSV columns: node,x,y,z,pressure. The node index is not used for plotting.
-    return np.loadtxt(path, delimiter=",", skiprows=1,
-                      usecols=(1, 2, 3, 4), ndmin=2)
+    # No header: int32 node, then float32 x, y, z, pressure (20 bytes/node).
+    # '=' means native byte order, matching the C++ writer; no padding.
+    node_type = np.dtype([("node", "=i4"), ("values", "=f4", (4,))])
+    size = path.stat().st_size
+    if size == 0 or size % node_type.itemsize != 0:
+        raise ValueError(f"Expected nonempty binary snapshot, 20 bytes/node: {path}")
+    return np.fromfile(path, dtype=node_type)["values"]
 
 
 def edges(centers):
@@ -42,14 +76,24 @@ def edges(centers):
 
 
 def plot_snapshots(paths, requested_z, out_dir):
+    start_read = perf_counter()
     first = load_snapshot(paths[0])
+    read_seconds = perf_counter() - start_read
+    start_analysis = perf_counter()
     levels = np.unique(first[:, 2])
     middle_z = (levels[0] + levels[-1]) / 2
     z = levels[np.argmin(abs(levels - (requested_z if requested_z is not None else middle_z)))]
 
     planes = []
+    preparation_seconds = perf_counter() - start_analysis
     for index, path in enumerate(paths):
-        data = first if index == 0 else load_snapshot(path)
+        if index == 0:
+            data = first
+        else:
+            start_read = perf_counter()
+            data = load_snapshot(path)
+            read_seconds += perf_counter() - start_read
+        start_analysis = perf_counter()
         points = data[data[:, 2] == z]
         if not len(points):
             raise ValueError(f"No nodes at z={z:g} in {path}")
@@ -60,12 +104,17 @@ def plot_snapshots(paths, requested_z, out_dir):
         pressure = np.full((len(y), len(x)), np.nan)
         pressure[y_index, x_index] = points[:, 3]
         planes.append((path, x, y, pressure))
+        preparation_seconds += perf_counter() - start_analysis
 
+    start_analysis = perf_counter()
     scale = max(np.nanmax(np.abs(pressure)) for _, _, _, pressure in planes)
     if scale == 0:
         scale = 1
+    preparation_seconds += perf_counter() - start_analysis
     out_dir.mkdir(parents=True, exist_ok=True)
+    render_seconds = 0.0
     for path, x, y, pressure in planes:
+        start_visualization = perf_counter()
         fig, ax = plt.subplots()
         image = ax.pcolormesh(edges(x), edges(y), pressure,
                               cmap="RdBu_r", vmin=-scale, vmax=scale)
@@ -75,24 +124,41 @@ def plot_snapshots(paths, requested_z, out_dir):
         output = out_dir / f"{path.stem}.svg"
         fig.savefig(output, bbox_inches="tight")
         plt.close(fig)
+        render_seconds += perf_counter() - start_visualization
         print(output)
+    save_metrics("snapshots", {
+        "read_seconds": read_seconds,
+        "preparation_seconds": preparation_seconds,
+        "render_seconds": render_seconds,
+    })
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     sismos = commands.add_parser("sismos")
-    sismos.add_argument("csv", type=Path)
+    sismos.add_argument("bin", type=Path)
     sismos.add_argument("--output", type=Path, default=Path("sismos.svg"))
     snapshots = commands.add_parser("snapshots")
-    snapshots.add_argument("csv", nargs="+", type=Path)
+    snapshots.add_argument(
+        "directory", type=Path, help="directory containing snapshot_<step>.bin files"
+    )
     snapshots.add_argument("--z", type=float, help="nearest available z plane")
     snapshots.add_argument("--out-dir", type=Path, default=Path("figures"))
     args = parser.parse_args()
     if args.command == "sismos":
-        plot_sismos(args.csv, args.output)
+        plot_sismos(args.bin, args.output)
     else:
-        plot_snapshots(args.csv, args.z, args.out_dir)
+        if not args.directory.is_dir():
+            parser.error(f"Snapshot directory does not exist: {args.directory}")
+        paths = sorted(
+            (path for path in args.directory.glob("snapshot_*.bin")
+             if path.is_file() and path.stem.split("_")[-1].isdigit()),
+            key=lambda path: int(path.stem.split("_")[-1]),
+        )
+        if not paths:
+            parser.error(f"No snapshot_<step>.bin files found in {args.directory}")
+        plot_snapshots(paths, args.z, args.out_dir)
 
 
 if __name__ == "__main__":
