@@ -14,6 +14,7 @@ import sys
 from time import perf_counter
 
 from benchmark import environment, run_command
+from estimate_tp2_storage import check_storage_budget
 
 
 FIELDS = (
@@ -343,7 +344,23 @@ def command(config,size,kind,mode,interval,receivers):
     return result
 
 
+def remove_raw_output(directory, kind):
+    """Call only after validation and CSV persistence, outside all timed regions."""
+    folder = directory / "snapshots" if kind == "snapshots" else directory
+    if folder.is_symlink():
+        raise ValueError(f"Nettoyage refusé : lien symbolique {folder}")
+    files = ([p for p in folder.glob("snapshot_*.bin")
+              if p.stem.removeprefix("snapshot_").isdigit()]
+             if kind == "snapshots" else [directory / "sismos.bin"])
+    # Check every candidate before deleting anything; keep all reports and logs.
+    if any(p.is_symlink() or not p.is_file() for p in files):
+        raise ValueError(f"Sortie brute invalide pour le nettoyage : {directory}")
+    for path in files:
+        path.unlink()
+
+
 def execute(config,size,kind,mode,interval,directory,receivers,analyzer):
+    check_storage_budget(config,size,kind,mode,interval,directory,receivers)
     directory.mkdir()
     start=perf_counter()
     run_command(command(config,size,kind,mode,interval,receivers),directory,"simulation")
@@ -356,8 +373,9 @@ def execute(config,size,kind,mode,interval,directory,receivers,analyzer):
 
 
 def run_extrema_case(config, size, backend, directory):
-    directory.mkdir()
     interval = config["parameters"]["snap-time-interval"]
+    check_storage_budget(config,size,"snapshots","in-situ",interval,directory,None)
+    directory.mkdir()
     cmd = command(config, size, "snapshots", "in-situ", interval, None)
     cmd.extend(("--extrema-backend", backend))
     start = perf_counter()
@@ -556,7 +574,8 @@ def main():
             steps=int(config["parameters"]["timemax"]/config["parameters"]["dt"])
             fields=len(range(0,steps,k))*repetitions+sum(len(range(0,steps,v)) for v in config["precision_intervals"] if v!=k)
             mb=sum((n*config["parameters"]["order"]+1)**3*20*fields/1e6 for _,n in selected)
-            print(f"Volume approximatif de snapshots bruts conservés : {mb/1000:.2f} GB")
+            print(f"Volume approximatif de snapshots bruts écrits, puis supprimés : {mb/1000:.2f} GB")
+        print("Budget : 20 GB ; binaires supprimés après validation et sauvegarde des mesures, hors chronométrage.")
         backend=next((line.partition(":")[2].strip().lower() for line in help_result.stdout.splitlines()
                       if line.startswith("Kokkos execution space:")),"vector")
         output=config_path.parent/"results"/f"ad-hoc-vs-in-situ-{backend}"
@@ -582,6 +601,7 @@ def main():
                     validation.extend(compare_statistics(pair["ad-hoc"],pair["in-situ"],kind,case,n,repeat))
                     if repeat==1: first=pair["ad-hoc"]
                     save_results(output,records,validation,precision)
+                    remove_raw_output(output/f"{case}-n{n}-{kind}-run{repeat:02d}-ad-hoc",kind)
                 if kind=="snapshots":
                     print(f"{case} N={n} : référence in-situ à chaque pas",flush=True)
                     _,dense,dense_samples=execute(config,n,kind,"in-situ",1,output/f"{case}-n{n}-precision-reference",receivers,analyzer)
@@ -593,6 +613,8 @@ def main():
                             _,sparse,_=execute(config,n,kind,"ad-hoc",interval,output/f"{case}-n{n}-precision-ad-hoc-k{interval}",receivers,analyzer)
                         precision.append(precision_row(dense,sparse,case,n,interval,dense_samples))
                         save_results(output,records,validation,precision)
+                        if interval!=k:
+                            remove_raw_output(output/f"{case}-n{n}-precision-ad-hoc-k{interval}",kind)
         summary=save_results(output,records,validation,precision)
         figures = output / "figures"
         figures.mkdir()

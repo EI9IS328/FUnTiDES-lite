@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from benchmark import environment
-from compare import write_csv
+from compare import remove_raw_output, write_csv
 from strong_scaling import (
     KINDS, MODES, LIBRARY_THREADS, check_runtime, cpu_resources, execute,
     process_environment,
@@ -134,7 +134,7 @@ def run_campaign(config_path, config, info, plt):
     samples = int(config["parameters"]["timemax"] / config["parameters"]["dt"])
     fields = len(range(0, samples, config["parameters"]["snap-time-interval"]))
     nodes = sum(node_count(config, case) for case in config["cases"])
-    print(f"Snapshots bruts conservés : environ {nodes * 20 * fields * repetitions / 1e9:.2f} GB.", flush=True)
+    print(f"Snapshots bruts écrits puis supprimés : environ {nodes * 20 * fields * repetitions / 1e9:.2f} GB.", flush=True)
     records = []
     signatures = {}
     for kind in KINDS:
@@ -164,6 +164,8 @@ def run_campaign(config_path, config, info, plt):
                                     "nodes_per_thread": node_count(config, case) / p,
                                     "mode": mode, "repeat": repeat, "samples": actual_samples, **values})
                     write_csv(output / "runs.csv", records)
+                    if mode == "ad-hoc":
+                        remove_raw_output(directory, kind)
     figures = output / "figures"
     figures.mkdir()
     plot_results(summarize(records), figures, config, plt)
