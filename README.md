@@ -259,3 +259,74 @@ Les caches disque ne sont pas contrôlés et aucun `fsync` n'est ajouté : les
 mesures d'E/S ne représentent pas un débit physique garanti du disque.
 L'expérience complète l'étape 5 du TP2 ; elle ne remplace pas son modèle
 d'évolution des coûts avec la taille du maillage et la contrainte CFL.
+
+## Weak scaling Kokkos/OpenMP
+
+Le weak scaling augmente ensemble les threads et le nombre total d'éléments.
+Il utilise le même exécutable Release/Kokkos/OpenMP que le strong scaling,
+sans modification C++ ou CMake supplémentaire. Depuis la racine :
+
+```sh
+python3 benchmarks/weak_scaling.py benchmarks/weak_scaling_config.json
+```
+
+Le JSON contient `executable`, `receivers`, `cases`, `repetitions` et
+`parameters`. Chaque cas indique explicitement `threads`, `ex`, `ey`, `ez`.
+La référence est le premier cas, à un thread. Les nombres de threads doivent
+être distincts et croissants ; le script vérifie exactement
+`ex*ey*ez = threads * (ex0*ey0*ez0)`.
+
+| Threads | Maillage | Domaine physique calculé |
+|---:|---|---|
+| 1 | 20 × 20 × 20 | 2000 × 2000 × 2000 |
+| 2 | 40 × 20 × 20 | 4000 × 2000 × 2000 |
+| 4 | 40 × 40 × 20 | 4000 × 4000 × 2000 |
+| 8 | 40 × 40 × 40 | 4000 × 4000 × 4000 |
+
+Les longueurs de `parameters` décrivent le premier cas. Pour chaque cas,
+le script calcule `lx = lx0 * ex/ex0`, et de même pour y et z. On conserve
+ainsi les dimensions physiques des éléments, l'ordre, `dt`, `timemax` et la
+cadence ; aucun raffinement spatial n'est introduit. Le pas de temps doit
+être stable pour le modèle choisi. Les coordonnées de source et des récepteurs
+restent fixes et doivent appartenir à chaque domaine.
+
+Le réglage fourni garde 8000 éléments par thread. Le nombre de nœuds vaut
+`(order*ex+1)*(order*ey+1)*(order*ez+1)` ; les frontières font varier légèrement
+les nœuds par thread. Les charges du solveur par éléments et des statistiques
+par nœuds ne sont donc pas strictement identiques. Le CSV conserve les deux
+comptages et les longueurs réellement transmises au programme.
+
+Le pilote réutilise l'exécution du strong scaling : mêmes contrôles du backend
+et du pool effectif, placement OpenMP, analyse Python à un thread et chronomètre
+du workflow complet. Snapshots et sismogrammes restent séparés ; les approches
+analysent les mêmes instants à chaque taille. Cinq répétitions par défaut,
+ordre des cas et des approches alterné, donnent **80 simulations**, sans essais
+de précision supplémentaires. Environ **7,54 GB de snapshots bruts** sont
+conservés avec cette configuration ; cette estimation utilise les pas nominaux.
+Les ressources disponibles doivent couvrir la liste de threads configurée.
+
+Les sorties sont dans `benchmarks/results/tp2-weak-scaling-…/` :
+
+- `runs.csv` : mesures individuelles, dimensions, éléments/nœuds par thread,
+  temps du workflow et compteurs de calcul, analyse et E/S ;
+- configuration, récepteurs, environnement et dossiers de chaque essai ;
+- `figure/weak_scaling_snapshots.svg` et `figure/weak_scaling_sismograms.svg`.
+
+Chaque figure comporte deux panneaux : temps médian `T(p)` et efficacité faible
+`100*T(1)/T(p)`. Chaque approche utilise sa propre référence à un thread ; il
+n'y a pas de division supplémentaire par p. L'idéal est un temps constant et
+une efficacité de 100 %. Ad-hoc est continu, in-situ discontinu. L'abscisse
+précise les threads et le maillage ; les mesures individuelles restent dans le
+CSV. Les figures sont produites après les mesures, sans barres min–max.
+
+L'efficacité porte sur le workflow complet, dont certaines parties restent
+séquentielles : lecture, écritures et analyse Python peuvent augmenter avec les
+données, même si le calcul physique se répartit bien. Pour les sismogrammes,
+le nombre de récepteurs reste fixe : cette courbe évalue surtout le workflow
+avec un solveur croissant, pas une charge sismique constante par thread.
+Les temps seuls ne permettent pas d'attribuer une perte à une cause précise.
+On reste sur une machine à mémoire partagée ; sa bande passante mémoire et son
+stockage ne grandissent pas proportionnellement aux threads. Les limites de
+mesure des caches et des E/S décrites pour le strong scaling s'appliquent aussi.
+Cette étude par agrandissement du domaine complète le modèle demandé à
+l'étape 5 du TP2, qui considère un raffinement à domaine physique fixe.

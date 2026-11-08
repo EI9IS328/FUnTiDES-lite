@@ -110,7 +110,9 @@ def read_run(directory, kind, mode, wall_seconds, size, config, interval):
     if kind == "snapshots":
         if [r["timestep_index"] for r in rows] != list(range(0, samples, interval)):
             raise ValueError("Pas analysés incorrects")
-        nodes = (size * config["parameters"]["order"] + 1) ** 3
+        # An integer keeps the existing cubic cases; a triplet supports weak scaling.
+        dimensions = (size, size, size) if isinstance(size, int) else size
+        nodes = math.prod(n * config["parameters"]["order"] + 1 for n in dimensions)
         if any(r["node_count"] != nodes or not math.isfinite(r["time_seconds"]) for r in rows):
             raise ValueError("Métadonnées de snapshots incorrectes")
     elif any(r["receiver_index"] != i or r["sample_count"] != samples
@@ -330,7 +332,8 @@ def save_results(output, records, validation, precision):
 
 
 def command(config,size,kind,mode,interval,receivers):
-    result=[config["executable"],"--outputs",kind,"--mode",mode,"--ex",str(size),"--ey",str(size),"--ez",str(size),
+    ex,ey,ez = (size,size,size) if isinstance(size,int) else size
+    result=[config["executable"],"--outputs",kind,"--mode",mode,"--ex",str(ex),"--ey",str(ey),"--ez",str(ez),
             "--mesh","cartesian","--method","sem","--implem","makutu"]
     for key,value in config["parameters"].items():
         result.extend([f"--{key}",str(interval if key=="snap-time-interval" else value)])
