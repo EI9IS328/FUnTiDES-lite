@@ -108,10 +108,38 @@ Les paramètres restent dans les quatre JSON de `benchmarks/`. Pour le workflow
 CUDA, `OMP_NUM_THREADS` est conservé s'il est défini, sinon il vaut 1 ; les
 bibliothèques numériques sont limitées à un thread. Les pilotes strong/weak
 définissent eux-mêmes leurs pools de simulation. Avec les configurations
-fournies, le lancement prévoit **265 simulations**, environ **248 GB de
-snapshots bruts conservés**, hors statistiques et logs. Il faut adapter les
-configurations à la machine avant de lancer ; les estimations utilisent les
-pas nominaux et les compteurs mesurés restent la référence.
+fournies, le lancement prévoit **545 simulations**, avec cinq répétitions :
+
+- comparaison ad-hoc/in-situ : S = `[12,16,20]`, M = `[24,28,32]`, L = `[35,38,40]` ;
+- extrema CPU/GPU : S = `[10,20,30]`, M = `[40,50]`, L = `[60,70,80]` ;
+- strong scaling : N = 50, threads = `[1,2,3,4,6,8]` ;
+- weak scaling : 8 000 éléments par thread, avec ces mêmes nombres de threads.
+
+Le pic brut nominal est d'environ **15,94 GB**, lors de la comparaison de
+précision à N = 40, k = 1. Les dimensions sont des nombres d'éléments ;
+le nombre de nœuds vaut `(order*N+1)^3` dans les cas cubiques.
+Il faut huit cœurs physiques disponibles et assez de mémoire CPU/GPU ; le
+budget disque ne garantit pas la capacité mémoire ni un temps d'exécution court.
+
+**Après chaque essai ad-hoc analysé, contrôlé et enregistré dans les CSV**, seuls
+ses `snapshots/snapshot_<pas>.bin` ou son `sismos.bin` sont supprimés. Pour les
+essais chronométrés de `compare.py`, le contrôle de la paire ad-hoc/in-situ
+précède la suppression. Les JSON, CSV, configurations, logs et figures restent
+disponibles. Un échec avant cette étape conserve les binaires pour diagnostic.
+Le nettoyage est hors des chronomètres et les volumes enregistrés restent les
+volumes réellement **écrits**, pas le volume restant après suppression.
+Les figures TP2 utilisent les statistiques et mesures conservées ; pour refaire
+une autre analyse des champs bruts ou une visualisation spatiale, il faudra
+relancer la simulation.
+
+Avant chaque essai, le pilote contrôle le volume actuel de `build/` et des
+dossiers des quatre campagnes, ajoute le brut prévu et **1 GB de réserve**
+pour les nouveaux rapports et la gestion du stockage, puis refuse de lancer
+l'essai si le total dépasse **20 GB** ou si l'espace libre ne suffit pas.
+Le contrôle du brut prévoit un pas supplémentaire pour les arrondis float32.
+Le lanceur vérifie aussi le pic nominal avant son nettoyage initial.
+Ces contrôles sont prévisionnels, sans quota du système de fichiers : une autre
+application qui remplit le disque peut encore provoquer une erreur d'écriture.
 
 Les quatre dossiers de sortie sont fixes, sans date :
 
@@ -140,10 +168,12 @@ python3 benchmarks/estimate_tp2_storage.py
 ```
 
 Cet outil lit les quatre JSON et affiche une ligne par configuration : volume
-des snapshots, des sismogrammes et leur total, puis la somme des quatre.
-Il inclut les répétitions et les sorties de précision de `compare.py`.
-Il estime les nouvelles données brutes conservées, hors JSON, CSV, logs,
-figures, `build/`, gestion du système de fichiers et résultats déjà présents.
+cumulé des snapshots et sismogrammes écrits, leur total, et le pic brut
+temporaire. La somme des volumes écrits inclut les répétitions et les sorties
+de précision de `compare.py` ; elle peut dépasser 20 GB puisque les binaires
+sont supprimés progressivement. Le pic global est le maximum des quatre pics,
+pas leur somme. Les pics bruts excluent JSON, CSV, logs, figures et `build/`,
+qui sont pris en compte par les contrôles pendant l'exécution.
 Le zéro de la campagne CPU/GPU signifie zéro donnée brute ; ses statistiques
 et figures occupent aussi du stockage. Les arrondis float32 du simulateur
 peuvent légèrement modifier le nombre réel de pas et le volume.

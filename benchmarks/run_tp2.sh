@@ -76,6 +76,7 @@ python3 -B - "$PROJECT_ROOT" <<'PY'
 import json
 from pathlib import Path
 import os
+import shutil
 import sys
 
 try:
@@ -84,6 +85,13 @@ try:
     root = Path(sys.argv[1])
     sys.path.insert(0, str(root / "benchmarks"))
     from strong_scaling import cpu_resources
+    from estimate_tp2_storage import estimate_all, STORAGE_BUDGET, STORAGE_RESERVE
+    peak = max(row["peak_bytes"] for row in estimate_all(root / "benchmarks"))
+    if peak + STORAGE_RESERVE > STORAGE_BUDGET:
+        raise ValueError(f"Pic brut prévu {peak/1e9:.3f} GB + 1 GB de réserve > budget de 20 GB")
+    if shutil.disk_usage(root).free < peak + STORAGE_RESERVE:
+        raise ValueError(f"Espace libre insuffisant : au moins {peak/1e9 + 1:.3f} GB nécessaires")
+    print(f"Pic brut nominal : {peak/1e9:.3f} GB ; contrôle du budget avant chaque essai.", flush=True)
     resources = cpu_resources()
     limit = resources["physical_cores"] or len(resources["affinity_cpus"])
     requested = int(os.environ["OMP_NUM_THREADS"])

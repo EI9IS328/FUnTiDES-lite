@@ -4,7 +4,9 @@
   "cases": [
     {"threads": 1, "ex": 20, "ey": 20, "ez": 20},
     {"threads": 2, "ex": 40, "ey": 20, "ez": 20},
+    {"threads": 3, "ex": 40, "ey": 30, "ez": 20},
     {"threads": 4, "ex": 40, "ey": 40, "ez": 20},
+    {"threads": 6, "ex": 40, "ey": 40, "ez": 30},
     {"threads": 8, "ex": 40, "ey": 40, "ez": 40}
   ],
   "repetitions": 5,

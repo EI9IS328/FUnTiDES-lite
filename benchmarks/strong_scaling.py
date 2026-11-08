@@ -15,7 +15,8 @@ import sys
 from time import perf_counter
 
 from benchmark import environment
-from compare import command, read_run, write_csv
+from compare import command, read_run, remove_raw_output, write_csv
+from estimate_tp2_storage import check_storage_budget
 
 
 KINDS = ("snapshots", "sismograms")
@@ -110,9 +111,10 @@ def run_logged(args, directory, name, settings):
 
 
 def execute(config, kind, mode, threads, directory, receivers, analyzer):
-    directory.mkdir()
     size = config["size"]
     interval = config["parameters"]["snap-time-interval"]
+    check_storage_budget(config, size, kind, mode, interval, directory, receivers)
+    directory.mkdir()
     args = command(config, size, kind, mode, interval, receivers)
     args.append(f"--kokkos-num-threads={threads}")
     simulation_env = process_environment(threads)
@@ -187,7 +189,7 @@ def run_campaign(config_path, config, info, plt):
     samples = int(config["parameters"]["timemax"] / config["parameters"]["dt"])
     fields = len(range(0, samples, config["parameters"]["snap-time-interval"]))
     nodes = (config["size"] * config["parameters"]["order"] + 1) ** 3
-    print(f"Snapshots bruts conservés : environ {nodes * 20 * fields * repetitions * len(config['threads']) / 1e9:.2f} GB.", flush=True)
+    print(f"Snapshots bruts écrits puis supprimés : environ {nodes * 20 * fields * repetitions * len(config['threads']) / 1e9:.2f} GB.", flush=True)
     # Reverse the thread sweep on alternate repetitions to limit order bias.
     for kind in KINDS:
         for repeat in range(1, repetitions + 1):
@@ -209,6 +211,8 @@ def run_campaign(config_path, config, info, plt):
                     records.append({"data": kind, "elements": config["size"], "threads": p,
                                     "mode": mode, "repeat": repeat, "samples": actual_samples, **values})
                     write_csv(output / "runs.csv", records)
+                    if mode == "ad-hoc":
+                        remove_raw_output(directory, kind)
     figures = output / "figures"
     figures.mkdir()
     plot_results(summarize(records), figures, config, plt)
