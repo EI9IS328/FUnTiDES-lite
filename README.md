@@ -179,3 +179,83 @@ snapshots bruts. Les nouvelles campagnes `results/tp2-cpu-gpu-*` contiennent
 la configuration, l'environnement et les fichiers de chaque essai.
 La figure de comparaison et le schéma sont dans `figure/`.
 La génération du rapport et des figures est hors des chronomètres.
+
+## Strong scaling Kokkos/OpenMP
+
+Cette expérience garde le problème fixe et fait varier seulement le nombre de
+threads CPU. Utiliser un même exécutable **Release, Kokkos/OpenMP, sans CUDA**
+pour toute la campagne et le recompiler après les modifications de `main.cc`.
+Les fichiers CMake ne sont pas modifiés. Le script vérifie le mode Release
+dans le `CMakeCache.txt` du build et le backend réellement annoncé par Kokkos.
+
+Depuis la racine, avec NumPy et Matplotlib dans l'environnement Python :
+
+```sh
+python3 benchmarks/strong_scaling.py benchmarks/strong_scaling_config.json
+```
+
+La configuration contient une seule `size` : `ex = ey = ez = size`. Les
+paramètres physiques, l'ordre et la cadence restent fixes pour toutes les
+exécutions. Les chemins sont relatifs au JSON. Adapter `executable` à votre
+build et `threads` aux cœurs disponibles sur la machine ; la liste commence
+par 1 pour fournir la référence. Le script refuse de dépasser le nombre de
+cœurs physiques détectés dans l'affinité du processus. Si cette topologie
+n'est pas accessible, il vérifie les processeurs logiques et le signale.
+Il ne réserve pas les ressources : utiliser une machine ou une allocation
+disponible, sans autres travaux concurrents.
+
+Pour chaque nombre de threads, snapshots et sismogrammes sont mesurés
+séparément, en ad-hoc et en in-situ, cinq fois par défaut. Les snapshots sont
+analysés aux mêmes indices `0, k, 2k, ...` dans les deux approches ; les
+sismogrammes utilisent les mêmes récepteurs et tous les pas. Il n'y a pas de
+campagne de précision supplémentaire. Le réglage par défaut `N=40`,
+`threads=[1,2,4,8]`, cinq répétitions correspond à **80 simulations** et environ
+**16 GB de snapshots bruts conservés**. L'estimation utilise le nombre nominal
+de pas ; les compteurs mesurés restent la référence.
+
+Le pilote demande explicitement les threads à Kokkos et OpenMP, désactive
+l'ajustement dynamique et utilise `OMP_PLACES=cores`, `OMP_PROC_BIND=spread`.
+Le pool Kokkos effectif est contrôlé dans chaque log, ainsi que le backend.
+Les processus Python d'analyse gardent OpenMP et les bibliothèques numériques
+à un thread. C'est donc la scalabilité du **workflow avec le solveur et les
+analyses Kokkos parallélisés**, avec un post-traitement Python fixe. Les E/S et
+le code séquentiel ne deviennent pas automatiquement parallèles.
+
+Chaque répétition alterne l'ordre ad-hoc/in-situ ; le parcours des nombres de
+threads est également inversé une répétition sur deux. Aucun échauffement ni
+vidage des caches n'est ajouté. Les appels `--help` de vérification initialisent
+les pools de threads, sans exécuter la physique et hors chronométrage.
+
+Un chronomètre externe couvre le workflow complet : démarrage et fin des
+processus, simulation et écritures, puis lecture/analyse Python en ad-hoc.
+Le JSON de statistiques est inclus dans les deux approches. La lecture des
+rapports, les contrôles et la génération des figures sont hors de ce temps.
+Les sorties de processus sont redirigées vers leurs logs dans les deux cas.
+
+Les résultats sont dans `benchmarks/results/tp2-strong-scaling-…/` :
+
+- `runs.csv` : toutes les mesures individuelles, avec nombre de threads,
+  approche, répétition, type de données et compteurs de calcul/analyse/E/S ;
+- configuration, récepteurs et `environment.json` : machine, affinité,
+  compilation, versions Python/NumPy/Matplotlib et réglages des sous-processus ;
+- un dossier par exécution contenant logs, métriques, statistiques et données
+  brutes éventuelles ; aucun fichier brut n'est supprimé par le pilote ;
+- `figure/strong_scaling_snapshots.svg` et `figure/strong_scaling_sismograms.svg`.
+
+Chaque figure contient trois panneaux selon le nombre de threads `p` :
+temps médian du workflow `T(p)`, accélération `S(p)=T(1)/T(p)` et efficacité
+`E(p)=100*S(p)/p`. Chaque approche utilise sa propre référence à un thread.
+Ad-hoc est en ligne continue et in-situ en ligne discontinue ; seules les
+médianes sont représentées. Les références idéales sont `S(p)=p` et `E(p)=100 %`.
+Les rapports sont calculés à partir des médianes, pas en moyennant des rapports
+entre essais. Une approche peut être plus rapide en temps absolu tout en ayant
+une accélération plus faible.
+
+Un plateau doit être confronté aux compteurs : E/S, parties séquentielles,
+synchronisations ou bande passante mémoire peuvent limiter le gain. Ces temps
+ne suffisent pas à identifier seuls la cause. Une efficacité supérieure à
+100 % est possible, notamment avec des effets de cache, et doit être examinée.
+Les caches disque ne sont pas contrôlés et aucun `fsync` n'est ajouté : les
+mesures d'E/S ne représentent pas un débit physique garanti du disque.
+L'expérience complète l'étape 5 du TP2 ; elle ne remplace pas son modèle
+d'évolution des coûts avec la taille du maillage et la contrainte CFL.

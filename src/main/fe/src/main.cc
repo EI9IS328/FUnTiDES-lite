@@ -107,8 +107,9 @@ int main(int argc, char *argv[])
   SemProxyMetrics metrics;
 
 #ifdef USE_KOKKOS
-  setenv("OMP_PROC_BIND", "spread", 1);
-  setenv("OMP_PLACES", "threads", 1);
+  // Keep caller-defined affinity settings, including those used for scaling runs.
+  setenv("OMP_PROC_BIND", "spread", 0);
+  setenv("OMP_PLACES", "threads", 0);
   Kokkos::initialize(argc, argv);
   {
 #endif
@@ -123,12 +124,15 @@ int main(int argc, char *argv[])
 
     auto result = options.parse(argc, argv);
 
+#ifdef USE_KOKKOS
+    // Report the initialized backend and host pool, rather than requested values.
+    std::cout << "Kokkos execution space: " << Kokkos::DefaultExecutionSpace::name() << std::endl;
+    std::cout << "Kokkos host threads: " << Kokkos::DefaultHostExecutionSpace().concurrency() << std::endl;
+#endif
+
     if (result.count("help"))
     {
       std::cout << options.help() << std::endl;
-#ifdef USE_KOKKOS
-      std::cout << "Kokkos execution space: " << Kokkos::DefaultExecutionSpace::name() << std::endl;
-#endif
       exit(0);
     }
 
