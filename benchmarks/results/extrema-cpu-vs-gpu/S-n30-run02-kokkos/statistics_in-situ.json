@@ -1,0 +1,762 @@
+{
+  "snapshots": {
+    "per_snapshot": [
+      {
+        "timestep_index": 0,
+        "time_seconds": 0.0010000000474974513,
+        "node_count": 226981,
+        "minimum_pressure": -3.6454227938520489e-06,
+        "maximum_pressure": 2.065725129796192e-05,
+        "maximum_absolute_pressure": 2.065725129796192e-05,
+        "mean_pressure": 1.7865009417518436e-10,
+        "pressure_variance": 3.3704344898899127e-15
+      },
+      {
+        "timestep_index": 20,
+        "time_seconds": 0.021000000997446477,
+        "node_count": 226981,
+        "minimum_pressure": -0.00076501222793012857,
+        "maximum_pressure": 0.005970352329313755,
+        "maximum_absolute_pressure": 0.005970352329313755,
+        "mean_pressure": 7.2805529181953724e-08,
+        "pressure_variance": 3.1571419036755894e-10
+      },
+      {
+        "timestep_index": 40,
+        "time_seconds": 0.041000001947395504,
+        "node_count": 226981,
+        "minimum_pressure": -0.0018214768497273326,
+        "maximum_pressure": 0.027572443708777428,
+        "maximum_absolute_pressure": 0.027572443708777428,
+        "mean_pressure": 5.2530572592060198e-07,
+        "pressure_variance": 7.9157930473516313e-09
+      },
+      {
+        "timestep_index": 60,
+        "time_seconds": 0.06100000289734453,
+        "node_count": 226981,
+        "minimum_pressure": -0.0046242140233516693,
+        "maximum_pressure": 0.10005916655063629,
+        "maximum_absolute_pressure": 0.10005916655063629,
+        "mean_pressure": 2.4222288592257106e-06,
+        "pressure_variance": 1.1001229010466576e-07
+      },
+      {
+        "timestep_index": 80,
+        "time_seconds": 0.081000003847293556,
+        "node_count": 226981,
+        "minimum_pressure": -0.0059456676244735718,
+        "maximum_pressure": 0.28599551320075989,
+        "maximum_absolute_pressure": 0.28599551320075989,
+        "mean_pressure": 8.6824323871310647e-06,
+        "pressure_variance": 9.7413853779693185e-07
+      },
+      {
+        "timestep_index": 100,
+        "time_seconds": 0.10100000479724258,
+        "node_count": 226981,
+        "minimum_pressure": -0.00013191580364946276,
+        "maximum_pressure": 0.62336677312850952,
+        "maximum_absolute_pressure": 0.62336677312850952,
+        "mean_pressure": 2.5087943623196517e-05,
+        "pressure_variance": 5.2421037473866327e-06
+      },
+      {
+        "timestep_index": 120,
+        "time_seconds": 0.12100000574719161,
+        "node_count": 226981,
+        "minimum_pressure": -0.0001472161675337702,
+        "maximum_pressure": 0.98881435394287109,
+        "maximum_absolute_pressure": 0.98881435394287109,
+        "mean_pressure": 5.9224984518497394e-05,
+        "pressure_variance": 1.6511567301186365e-05
+      },
+      {
+        "timestep_index": 140,
+        "time_seconds": 0.14100000669714063,
+        "node_count": 226981,
+        "minimum_pressure": -9.7153249953407794e-05,
+        "maximum_pressure": 0.9978334903717041,
+        "maximum_absolute_pressure": 0.9978334903717041,
+        "mean_pressure": 0.00011479140579958045,
+        "pressure_variance": 2.8810227095564102e-05
+      },
+      {
+        "timestep_index": 160,
+        "time_seconds": 0.16100000764708966,
+        "node_count": 226981,
+        "minimum_pressure": -0.00010508488776395097,
+        "maximum_pressure": 0.38172644376754761,
+        "maximum_absolute_pressure": 0.38172644376754761,
+        "mean_pressure": 0.00018316113221613197,
+        "pressure_variance": 2.9462104007306511e-05
+      },
+      {
+        "timestep_index": 180,
+        "time_seconds": 0.18100000859703869,
+        "node_count": 226981,
+        "minimum_pressure": -1.1197402477264404,
+        "maximum_pressure": 0.28274735808372498,
+        "maximum_absolute_pressure": 1.1197402477264404,
+        "mean_pressure": 0.00024119710954945082,
+        "pressure_variance": 4.1507920729893614e-05
+      },
+      {
+        "timestep_index": 200,
+        "time_seconds": 0.20100000954698771,
+        "node_count": 226981,
+        "minimum_pressure": -2.2081427574157715,
+        "maximum_pressure": 0.16428688168525696,
+        "maximum_absolute_pressure": 2.2081427574157715,
+        "mean_pressure": 0.00026263162220421652,
+        "pressure_variance": 9.8625056896069167e-05
+      },
+      {
+        "timestep_index": 220,
+        "time_seconds": 0.22100001049693674,
+        "node_count": 226981,
+        "minimum_pressure": -2.1512699127197266,
+        "maximum_pressure": 0.12943816184997559,
+        "maximum_absolute_pressure": 2.1512699127197266,
+        "mean_pressure": 0.00023661420978240302,
+        "pressure_variance": 0.00015802817144852953
+      },
+      {
+        "timestep_index": 240,
+        "time_seconds": 0.24100001144688576,
+        "node_count": 226981,
+        "minimum_pressure": -1.0360629558563232,
+        "maximum_pressure": 0.1044711247086525,
+        "maximum_absolute_pressure": 1.0360629558563232,
+        "mean_pressure": 0.00017621933173792698,
+        "pressure_variance": 0.00017292644388744709
+      },
+      {
+        "timestep_index": 260,
+        "time_seconds": 0.26100001239683479,
+        "node_count": 226981,
+        "minimum_pressure": -0.50101864337921143,
+        "maximum_pressure": 0.24405285716056824,
+        "maximum_absolute_pressure": 0.50101864337921143,
+        "mean_pressure": 0.00010823081306673179,
+        "pressure_variance": 0.00017200146062387386
+      },
+      {
+        "timestep_index": 280,
+        "time_seconds": 0.28100001334678382,
+        "node_count": 226981,
+        "minimum_pressure": -0.36314696073532104,
+        "maximum_pressure": 0.95068836212158203,
+        "maximum_absolute_pressure": 0.95068836212158203,
+        "mean_pressure": 5.4626076299825245e-05,
+        "pressure_variance": 0.00018410188463515058
+      },
+      {
+        "timestep_index": 300,
+        "time_seconds": 0.30100001429673284,
+        "node_count": 226981,
+        "minimum_pressure": -0.27233943343162537,
+        "maximum_pressure": 0.99079746007919312,
+        "maximum_absolute_pressure": 0.99079746007919312,
+        "mean_pressure": 2.2511620468898284e-05,
+        "pressure_variance": 0.00019733997687298188
+      },
+      {
+        "timestep_index": 320,
+        "time_seconds": 0.32100001524668187,
+        "node_count": 226981,
+        "minimum_pressure": -0.22964765131473541,
+        "maximum_pressure": 0.658347487449646,
+        "maximum_absolute_pressure": 0.658347487449646,
+        "mean_pressure": 7.4038323142856681e-06,
+        "pressure_variance": 0.00020183398261501315
+      },
+      {
+        "timestep_index": 340,
+        "time_seconds": 0.3410000161966309,
+        "node_count": 226981,
+        "minimum_pressure": -0.19626578688621521,
+        "maximum_pressure": 0.2836134135723114,
+        "maximum_absolute_pressure": 0.2836134135723114,
+        "mean_pressure": 1.7388519249783911e-06,
+        "pressure_variance": 0.00020243342702722352
+      },
+      {
+        "timestep_index": 360,
+        "time_seconds": 0.36100001714657992,
+        "node_count": 226981,
+        "minimum_pressure": -0.16989104449748993,
+        "maximum_pressure": 0.16744695603847504,
+        "maximum_absolute_pressure": 0.16989104449748993,
+        "mean_pressure": 2.7599064979183383e-08,
+        "pressure_variance": 0.00020244681563547982
+      },
+      {
+        "timestep_index": 380,
+        "time_seconds": 0.38100001809652895,
+        "node_count": 226981,
+        "minimum_pressure": -0.15088941156864166,
+        "maximum_pressure": 0.13479985296726227,
+        "maximum_absolute_pressure": 0.15088941156864166,
+        "mean_pressure": -4.1451783609692219e-07,
+        "pressure_variance": 0.00020250996299003114
+      },
+      {
+        "timestep_index": 400,
+        "time_seconds": 0.40100001904647797,
+        "node_count": 226981,
+        "minimum_pressure": -0.13555066287517548,
+        "maximum_pressure": 0.10858257859945297,
+        "maximum_absolute_pressure": 0.13555066287517548,
+        "mean_pressure": -5.2043266985990568e-07,
+        "pressure_variance": 0.00020246480766861321
+      },
+      {
+        "timestep_index": 420,
+        "time_seconds": 0.421000019996427,
+        "node_count": 226981,
+        "minimum_pressure": -0.12210950255393982,
+        "maximum_pressure": 0.095929823815822601,
+        "maximum_absolute_pressure": 0.12210950255393982,
+        "mean_pressure": -5.5243789122128991e-07,
+        "pressure_variance": 0.00020249681579747472
+      },
+      {
+        "timestep_index": 440,
+        "time_seconds": 0.44100002094637603,
+        "node_count": 226981,
+        "minimum_pressure": -0.11185527592897415,
+        "maximum_pressure": 0.081860385835170746,
+        "maximum_absolute_pressure": 0.11185527592897415,
+        "mean_pressure": -5.8750770783347724e-07,
+        "pressure_variance": 0.00020249156147560655
+      },
+      {
+        "timestep_index": 460,
+        "time_seconds": 0.46100002189632505,
+        "node_count": 226981,
+        "minimum_pressure": -0.10404174029827118,
+        "maximum_pressure": 0.074913240969181061,
+        "maximum_absolute_pressure": 0.10404174029827118,
+        "mean_pressure": -6.0986586944154339e-07,
+        "pressure_variance": 0.00020247231759494021
+      },
+      {
+        "timestep_index": 480,
+        "time_seconds": 0.48100002284627408,
+        "node_count": 226981,
+        "minimum_pressure": -0.096036285161972046,
+        "maximum_pressure": 0.06617380678653717,
+        "maximum_absolute_pressure": 0.096036285161972046,
+        "mean_pressure": -6.318214577569233e-07,
+        "pressure_variance": 0.00020251630590725319
+      },
+      {
+        "timestep_index": 500,
+        "time_seconds": 0.5010000237962231,
+        "node_count": 226981,
+        "minimum_pressure": -0.08946198970079422,
+        "maximum_pressure": 0.062426868826150894,
+        "maximum_absolute_pressure": 0.08946198970079422,
+        "mean_pressure": -6.6526768809325452e-07,
+        "pressure_variance": 0.00020245753654411948
+      },
+      {
+        "timestep_index": 520,
+        "time_seconds": 0.52100002474617213,
+        "node_count": 226981,
+        "minimum_pressure": -0.083754323422908783,
+        "maximum_pressure": 0.055736225098371506,
+        "maximum_absolute_pressure": 0.083754323422908783,
+        "mean_pressure": -6.8591476403830405e-07,
+        "pressure_variance": 0.00020251724237879459
+      },
+      {
+        "timestep_index": 540,
+        "time_seconds": 0.54100002569612116,
+        "node_count": 226981,
+        "minimum_pressure": -0.078839689493179321,
+        "maximum_pressure": 0.053129199892282486,
+        "maximum_absolute_pressure": 0.078839689493179321,
+        "mean_pressure": -7.0947638022732281e-07,
+        "pressure_variance": 0.00020246856496309776
+      },
+      {
+        "timestep_index": 560,
+        "time_seconds": 0.56100002664607018,
+        "node_count": 226981,
+        "minimum_pressure": -0.074925139546394348,
+        "maximum_pressure": 0.049154240638017654,
+        "maximum_absolute_pressure": 0.074925139546394348,
+        "mean_pressure": -7.4172353807073601e-07,
+        "pressure_variance": 0.0002024942433529578
+      },
+      {
+        "timestep_index": 580,
+        "time_seconds": 0.58100002759601921,
+        "node_count": 226981,
+        "minimum_pressure": -0.070418909192085266,
+        "maximum_pressure": 0.046752199530601501,
+        "maximum_absolute_pressure": 0.070418909192085266,
+        "mean_pressure": -7.5758408540750631e-07,
+        "pressure_variance": 0.0002024932442903123
+      },
+      {
+        "timestep_index": 600,
+        "time_seconds": 0.60100002854596823,
+        "node_count": 226981,
+        "minimum_pressure": -0.066724032163619995,
+        "maximum_pressure": 0.043639980256557465,
+        "maximum_absolute_pressure": 0.066724032163619995,
+        "mean_pressure": -7.8180913641702616e-07,
+        "pressure_variance": 0.00020246845538933521
+      },
+      {
+        "timestep_index": 620,
+        "time_seconds": 0.62100002949591726,
+        "node_count": 226981,
+        "minimum_pressure": -0.063321851193904877,
+        "maximum_pressure": 0.040609370917081833,
+        "maximum_absolute_pressure": 0.063321851193904877,
+        "mean_pressure": -8.2480937637818734e-07,
+        "pressure_variance": 0.00020250851696195218
+      },
+      {
+        "timestep_index": 640,
+        "time_seconds": 0.64100003044586629,
+        "node_count": 226981,
+        "minimum_pressure": -0.060740496963262558,
+        "maximum_pressure": 0.039432689547538757,
+        "maximum_absolute_pressure": 0.060740496963262558,
+        "mean_pressure": -9.1669450082475778e-07,
+        "pressure_variance": 0.00020246125678352909
+      },
+      {
+        "timestep_index": 660,
+        "time_seconds": 0.66100003139581531,
+        "node_count": 226981,
+        "minimum_pressure": -0.057997293770313263,
+        "maximum_pressure": 0.036946531385183334,
+        "maximum_absolute_pressure": 0.057997293770313263,
+        "mean_pressure": -1.1394414556138577e-06,
+        "pressure_variance": 0.00020250263548296982
+      },
+      {
+        "timestep_index": 680,
+        "time_seconds": 0.68100003234576434,
+        "node_count": 226981,
+        "minimum_pressure": -0.055581420660018921,
+        "maximum_pressure": 0.035926748067140579,
+        "maximum_absolute_pressure": 0.055581420660018921,
+        "mean_pressure": -1.2833545430173221e-06,
+        "pressure_variance": 0.00020247309067556851
+      },
+      {
+        "timestep_index": 700,
+        "time_seconds": 0.70100003329571337,
+        "node_count": 226981,
+        "minimum_pressure": -0.05318034440279007,
+        "maximum_pressure": 0.033926572650671005,
+        "maximum_absolute_pressure": 0.05318034440279007,
+        "mean_pressure": -2.7342478351000311e-09,
+        "pressure_variance": 0.00020248258177980806
+      },
+      {
+        "timestep_index": 720,
+        "time_seconds": 0.72100003424566239,
+        "node_count": 226981,
+        "minimum_pressure": -0.051203109323978424,
+        "maximum_pressure": 0.033123534172773361,
+        "maximum_absolute_pressure": 0.051203109323978424,
+        "mean_pressure": 6.6691162993539651e-06,
+        "pressure_variance": 0.00020252779319273175
+      },
+      {
+        "timestep_index": 740,
+        "time_seconds": 0.74100003519561142,
+        "node_count": 226981,
+        "minimum_pressure": -0.04944339394569397,
+        "maximum_pressure": 0.031375207006931305,
+        "maximum_absolute_pressure": 0.04944339394569397,
+        "mean_pressure": 2.6191943864345569e-05,
+        "pressure_variance": 0.00020295494540032103
+      },
+      {
+        "timestep_index": 760,
+        "time_seconds": 0.76100003614556044,
+        "node_count": 226981,
+        "minimum_pressure": -0.047587346285581589,
+        "maximum_pressure": 0.030693599954247475,
+        "maximum_absolute_pressure": 0.047587346285581589,
+        "mean_pressure": 6.6402094291565013e-05,
+        "pressure_variance": 0.00020477579627842306
+      },
+      {
+        "timestep_index": 780,
+        "time_seconds": 0.78100003709550947,
+        "node_count": 226981,
+        "minimum_pressure": -0.045782167464494705,
+        "maximum_pressure": 0.03172973170876503,
+        "maximum_absolute_pressure": 0.045782167464494705,
+        "mean_pressure": 0.00012671701497581279,
+        "pressure_variance": 0.00020801188675872309
+      },
+      {
+        "timestep_index": 800,
+        "time_seconds": 0.8010000380454585,
+        "node_count": 226981,
+        "minimum_pressure": -0.044256880879402161,
+        "maximum_pressure": 0.031179619953036308,
+        "maximum_absolute_pressure": 0.044256880879402161,
+        "mean_pressure": 0.00018836650449104709,
+        "pressure_variance": 0.00020866688524891441
+      },
+      {
+        "timestep_index": 820,
+        "time_seconds": 0.82100003899540752,
+        "node_count": 226981,
+        "minimum_pressure": -0.04291858896613121,
+        "maximum_pressure": 0.030619712546467781,
+        "maximum_absolute_pressure": 0.04291858896613121,
+        "mean_pressure": 0.00021516618146903767,
+        "pressure_variance": 0.00020235154244000462
+      },
+      {
+        "timestep_index": 840,
+        "time_seconds": 0.84100003994535655,
+        "node_count": 226981,
+        "minimum_pressure": -0.051394987851381302,
+        "maximum_pressure": 0.030066633597016335,
+        "maximum_absolute_pressure": 0.051394987851381302,
+        "mean_pressure": 0.00017303236945336931,
+        "pressure_variance": 0.000197579792220246
+      },
+      {
+        "timestep_index": 860,
+        "time_seconds": 0.86100004089530557,
+        "node_count": 226981,
+        "minimum_pressure": -0.070328354835510254,
+        "maximum_pressure": 0.036445107311010361,
+        "maximum_absolute_pressure": 0.070328354835510254,
+        "mean_pressure": 5.8475831498516198e-05,
+        "pressure_variance": 0.00021011001947642542
+      },
+      {
+        "timestep_index": 880,
+        "time_seconds": 0.8810000418452546,
+        "node_count": 226981,
+        "minimum_pressure": -0.069745980203151703,
+        "maximum_pressure": 0.036172077059745789,
+        "maximum_absolute_pressure": 0.069745980203151703,
+        "mean_pressure": -8.8785941157749402e-05,
+        "pressure_variance": 0.00023321309952525508
+      },
+      {
+        "timestep_index": 900,
+        "time_seconds": 0.90100004279520363,
+        "node_count": 226981,
+        "minimum_pressure": -0.068742901086807251,
+        "maximum_pressure": 0.035304192453622818,
+        "maximum_absolute_pressure": 0.068742901086807251,
+        "mean_pressure": -0.00020485677058719549,
+        "pressure_variance": 0.00024158038709871935
+      },
+      {
+        "timestep_index": 920,
+        "time_seconds": 0.92100004374515265,
+        "node_count": 226981,
+        "minimum_pressure": -0.0676775723695755,
+        "maximum_pressure": 0.03432893380522728,
+        "maximum_absolute_pressure": 0.0676775723695755,
+        "mean_pressure": -0.00024102371613964464,
+        "pressure_variance": 0.00023314724003377113
+      },
+      {
+        "timestep_index": 940,
+        "time_seconds": 0.94100004469510168,
+        "node_count": 226981,
+        "minimum_pressure": -0.066583752632141113,
+        "maximum_pressure": 0.040140446275472641,
+        "maximum_absolute_pressure": 0.066583752632141113,
+        "mean_pressure": -0.00019415680312612627,
+        "pressure_variance": 0.00022869549001471338
+      },
+      {
+        "timestep_index": 960,
+        "time_seconds": 0.9610000456450507,
+        "node_count": 226981,
+        "minimum_pressure": -0.065474309027194977,
+        "maximum_pressure": 0.042042218148708344,
+        "maximum_absolute_pressure": 0.065474309027194977,
+        "mean_pressure": -0.00010593245570522214,
+        "pressure_variance": 0.00023347372314792288
+      },
+      {
+        "timestep_index": 980,
+        "time_seconds": 0.98100004659499973,
+        "node_count": 226981,
+        "minimum_pressure": -0.064322143793106079,
+        "maximum_pressure": 0.041024338454008102,
+        "maximum_absolute_pressure": 0.064322143793106079,
+        "mean_pressure": -3.137335725599095e-05,
+        "pressure_variance": 0.00023717354252991777
+      },
+      {
+        "timestep_index": 1000,
+        "time_seconds": 1.0010000475449488,
+        "node_count": 226981,
+        "minimum_pressure": -0.063210062682628632,
+        "maximum_pressure": 0.039706405252218246,
+        "maximum_absolute_pressure": 0.063210062682628632,
+        "mean_pressure": 4.2041770186382641e-07,
+        "pressure_variance": 0.00023737595365172398
+      },
+      {
+        "timestep_index": 1020,
+        "time_seconds": 1.0210000484948978,
+        "node_count": 226981,
+        "minimum_pressure": -0.062176283448934555,
+        "maximum_pressure": 0.038407985121011734,
+        "maximum_absolute_pressure": 0.062176283448934555,
+        "mean_pressure": 7.7915840318656269e-07,
+        "pressure_variance": 0.00023752526120436916
+      },
+      {
+        "timestep_index": 1040,
+        "time_seconds": 1.0410000494448468,
+        "node_count": 226981,
+        "minimum_pressure": -0.061006274074316025,
+        "maximum_pressure": 0.043627753853797913,
+        "maximum_absolute_pressure": 0.061006274074316025,
+        "mean_pressure": -1.6309975514604234e-06,
+        "pressure_variance": 0.00023914775671175599
+      },
+      {
+        "timestep_index": 1060,
+        "time_seconds": 1.0610000503947958,
+        "node_count": 226981,
+        "minimum_pressure": -0.059856228530406952,
+        "maximum_pressure": 0.047665521502494812,
+        "maximum_absolute_pressure": 0.059856228530406952,
+        "mean_pressure": 6.2805605030339915e-06,
+        "pressure_variance": 0.00024136383772979769
+      },
+      {
+        "timestep_index": 1080,
+        "time_seconds": 1.0810000513447449,
+        "node_count": 226981,
+        "minimum_pressure": -0.058640077710151672,
+        "maximum_pressure": 0.04686041921377182,
+        "maximum_absolute_pressure": 0.058640077710151672,
+        "mean_pressure": 1.5822516356922364e-05,
+        "pressure_variance": 0.0002362537818858117
+      },
+      {
+        "timestep_index": 1100,
+        "time_seconds": 1.1010000522946939,
+        "node_count": 226981,
+        "minimum_pressure": -0.057593490928411484,
+        "maximum_pressure": 0.046098794788122177,
+        "maximum_absolute_pressure": 0.057593490928411484,
+        "mean_pressure": 1.4360685142999279e-05,
+        "pressure_variance": 0.00021953964602847525
+      },
+      {
+        "timestep_index": 1120,
+        "time_seconds": 1.1210000532446429,
+        "node_count": 226981,
+        "minimum_pressure": -0.095127388834953308,
+        "maximum_pressure": 0.045234084129333496,
+        "maximum_absolute_pressure": 0.095127388834953308,
+        "mean_pressure": -8.8310455872250299e-07,
+        "pressure_variance": 0.00021286779679190903
+      },
+      {
+        "timestep_index": 1140,
+        "time_seconds": 1.1410000541945919,
+        "node_count": 226981,
+        "minimum_pressure": -0.10916923731565475,
+        "maximum_pressure": 0.051153272390365601,
+        "maximum_absolute_pressure": 0.10916923731565475,
+        "mean_pressure": -2.1542348141465016e-05,
+        "pressure_variance": 0.00023601679893021574
+      },
+      {
+        "timestep_index": 1160,
+        "time_seconds": 1.161000055144541,
+        "node_count": 226981,
+        "minimum_pressure": -0.10708416998386383,
+        "maximum_pressure": 0.051192700862884521,
+        "maximum_absolute_pressure": 0.10708416998386383,
+        "mean_pressure": -3.2822466066921627e-05,
+        "pressure_variance": 0.00025796588359064361
+      },
+      {
+        "timestep_index": 1180,
+        "time_seconds": 1.18100005609449,
+        "node_count": 226981,
+        "minimum_pressure": -0.10540755838155746,
+        "maximum_pressure": 0.049627967178821564,
+        "maximum_absolute_pressure": 0.10540755838155746,
+        "mean_pressure": -2.5763725091431529e-05,
+        "pressure_variance": 0.00024694554431471406
+      },
+      {
+        "timestep_index": 1200,
+        "time_seconds": 1.201000057044439,
+        "node_count": 226981,
+        "minimum_pressure": -0.10318359732627869,
+        "maximum_pressure": 0.049044016748666763,
+        "maximum_absolute_pressure": 0.10318359732627869,
+        "mean_pressure": -9.0346166651963631e-06,
+        "pressure_variance": 0.00022796231920072036
+      },
+      {
+        "timestep_index": 1220,
+        "time_seconds": 1.221000057994388,
+        "node_count": 226981,
+        "minimum_pressure": -0.10158203542232513,
+        "maximum_pressure": 0.055786944925785065,
+        "maximum_absolute_pressure": 0.10158203542232513,
+        "mean_pressure": 7.5938777610441905e-07,
+        "pressure_variance": 0.00022517370348454748
+      },
+      {
+        "timestep_index": 1240,
+        "time_seconds": 1.2410000589443371,
+        "node_count": 226981,
+        "minimum_pressure": -0.099786102771759033,
+        "maximum_pressure": 0.058959074318408966,
+        "maximum_absolute_pressure": 0.099786102771759033,
+        "mean_pressure": 7.8129261778209119e-07,
+        "pressure_variance": 0.00022936819762199559
+      },
+      {
+        "timestep_index": 1260,
+        "time_seconds": 1.2610000598942861,
+        "node_count": 226981,
+        "minimum_pressure": -0.097845643758773804,
+        "maximum_pressure": 0.079703249037265778,
+        "maximum_absolute_pressure": 0.097845643758773804,
+        "mean_pressure": 8.819455236498308e-07,
+        "pressure_variance": 0.00023254480724445509
+      },
+      {
+        "timestep_index": 1280,
+        "time_seconds": 1.2810000608442351,
+        "node_count": 226981,
+        "minimum_pressure": -0.095525786280632019,
+        "maximum_pressure": 0.076979421079158783,
+        "maximum_absolute_pressure": 0.095525786280632019,
+        "mean_pressure": 3.9360661747197372e-06,
+        "pressure_variance": 0.00023265758389055973
+      },
+      {
+        "timestep_index": 1300,
+        "time_seconds": 1.3010000617941841,
+        "node_count": 226981,
+        "minimum_pressure": -0.089686669409275055,
+        "maximum_pressure": 0.065425589680671692,
+        "maximum_absolute_pressure": 0.089686669409275055,
+        "mean_pressure": 3.8080890277473377e-06,
+        "pressure_variance": 0.00022573038565411294
+      },
+      {
+        "timestep_index": 1320,
+        "time_seconds": 1.3210000627441332,
+        "node_count": 226981,
+        "minimum_pressure": -0.12070398032665253,
+        "maximum_pressure": 0.052667561918497086,
+        "maximum_absolute_pressure": 0.12070398032665253,
+        "mean_pressure": -2.7517846974970591e-07,
+        "pressure_variance": 0.00021630697751979461
+      },
+      {
+        "timestep_index": 1340,
+        "time_seconds": 1.3410000636940822,
+        "node_count": 226981,
+        "minimum_pressure": -0.18099409341812134,
+        "maximum_pressure": 0.079034686088562012,
+        "maximum_absolute_pressure": 0.18099409341812134,
+        "mean_pressure": -2.7607908449722826e-06,
+        "pressure_variance": 0.00022023578126377575
+      },
+      {
+        "timestep_index": 1360,
+        "time_seconds": 1.3610000646440312,
+        "node_count": 226981,
+        "minimum_pressure": -0.17955917119979858,
+        "maximum_pressure": 0.08144465833902359,
+        "maximum_absolute_pressure": 0.17955917119979858,
+        "mean_pressure": -2.1633915434650819e-06,
+        "pressure_variance": 0.00023616640808631005
+      },
+      {
+        "timestep_index": 1380,
+        "time_seconds": 1.3810000655939803,
+        "node_count": 226981,
+        "minimum_pressure": -0.15957066416740417,
+        "maximum_pressure": 0.07555554062128067,
+        "maximum_absolute_pressure": 0.15957066416740417,
+        "mean_pressure": -1.3557974386311831e-06,
+        "pressure_variance": 0.00023945881711394051
+      },
+      {
+        "timestep_index": 1400,
+        "time_seconds": 1.4010000665439293,
+        "node_count": 226981,
+        "minimum_pressure": -0.085864588618278503,
+        "maximum_pressure": 0.055380512028932571,
+        "maximum_absolute_pressure": 0.085864588618278503,
+        "mean_pressure": -1.0421108064318434e-06,
+        "pressure_variance": 0.00022810952893843661
+      },
+      {
+        "timestep_index": 1420,
+        "time_seconds": 1.4210000674938783,
+        "node_count": 226981,
+        "minimum_pressure": -0.084372736513614655,
+        "maximum_pressure": 0.083299256861209869,
+        "maximum_absolute_pressure": 0.084372736513614655,
+        "mean_pressure": -4.2496281099431916e-07,
+        "pressure_variance": 0.00022187365410002488
+      },
+      {
+        "timestep_index": 1440,
+        "time_seconds": 1.4410000684438273,
+        "node_count": 226981,
+        "minimum_pressure": -0.084388546645641327,
+        "maximum_pressure": 0.086004346609115601,
+        "maximum_absolute_pressure": 0.086004346609115601,
+        "mean_pressure": -7.8035720444153038e-07,
+        "pressure_variance": 0.00022382753809210525
+      },
+      {
+        "timestep_index": 1460,
+        "time_seconds": 1.4610000693937764,
+        "node_count": 226981,
+        "minimum_pressure": -0.082849361002445221,
+        "maximum_pressure": 0.070430807769298553,
+        "maximum_absolute_pressure": 0.082849361002445221,
+        "mean_pressure": -2.5774456976648003e-06,
+        "pressure_variance": 0.00022570939686463967
+      },
+      {
+        "timestep_index": 1480,
+        "time_seconds": 1.4810000703437254,
+        "node_count": 226981,
+        "minimum_pressure": -0.081235140562057495,
+        "maximum_pressure": 0.054549161344766617,
+        "maximum_absolute_pressure": 0.081235140562057495,
+        "mean_pressure": -2.9210017776596291e-06,
+        "pressure_variance": 0.00022371663097438683
+      }
+    ],
+    "global_extrema": {
+      "minimum_pressure": -2.2081427574157715,
+      "maximum_pressure": 0.9978334903717041,
+      "maximum_absolute_pressure": 2.2081427574157715
+    }
+  },
+  "sismograms": null
+}

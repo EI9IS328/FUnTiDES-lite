@@ -1,0 +1,17 @@
+{
+  "machine": "lelio-victus",
+  "system": "Linux-7.0.0-38-generic-x86_64-inconnu-with-glibc2.43",
+  "OMP_NUM_THREADS": "1",
+  "CUDA_VISIBLE_DEVICES": null,
+  "build": {
+    "CMAKE_BUILD_TYPE": "Release",
+    "ENABLE_CUDA": "ON",
+    "Kokkos_ENABLE_OPENMP": "ON",
+    "USE_KOKKOS": "ON",
+    "USE_VECTOR": "OFF"
+  },
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU, 6144 MiB, 595.91.07",
+  "execution_space": "Cuda",
+  "python": "3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]",
+  "cpu_model": "11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz"
+}

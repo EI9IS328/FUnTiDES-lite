@@ -13,12 +13,36 @@
 #include <model_unstruct.h>
 #include <solver_factory.h>
 #include <utils.h>
+#include <vector>
 
 #include <memory>
 #include <string>
 #include <variant>
 
 #include "sem_proxy_options.h"
+
+// Temps en secondes ; volumes en MB (1 MB = 1 000 000 octets).
+struct SemProxyMetrics
+{
+  double total_seconds = 0;
+  double compute_seconds = 0;
+  double snapshot_write_seconds = 0;
+  double sismogram_write_seconds = 0;
+  double snapshot_mb = 0;
+  double sismogram_mb = 0;
+  bool in_situ = false;
+  std::string outputs = "both";
+  int sample_count = 0;
+  std::string extrema_backend;
+  std::string execution_space;
+  double extrema_prepare_seconds = 0, extrema_compute_seconds = 0;
+  double extrema_result_seconds = 0, extrema_total_seconds = 0;
+  std::size_t extrema_input_bytes = 0, extrema_result_bytes = 0, extrema_calls = 0;
+  double snapshot_analysis_seconds = 0;
+  double sismogram_analysis_seconds = 0;
+  double statistics_write_seconds = 0;
+  double statistics_mb = 0;
+};
 
 /**
  * @class SEMproxy
@@ -54,6 +78,8 @@ class SEMproxy
    */
   void run();
 
+  const SemProxyMetrics& getMetrics() const { return metrics_; }
+
   /**
    * @brief Computes optimal time step using CFL stability condition for seismic
    * wave propagation
@@ -75,8 +101,14 @@ class SEMproxy
   float find_cfl_dt(float cfl_factor);
 
   void saveSnapshot(int timestep);
+  void saveSlice(int timestep);
 
  private:
+  SemProxyMetrics metrics_;
+  bool is_in_situ_ = false;
+  std::string extrema_backend_;
+  bool process_snapshots_ = true;
+  bool process_sismograms_ = true;
   int i1 = 0;
   int i2 = 1;
 
@@ -86,12 +118,20 @@ class SEMproxy
   int nb_nodes_[3] = {0};
   std::array<float, 3> src_coord_ = {0};
   std::array<float, 3> rcv_coord_ = {0};
-  float domain_size_[3] = {0};
 
+  std::vector<std::array<float, 3>> receiver_coords_;
+  float domain_size_[3] = {0};
+  
   // snapshots
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  // slices
+  bool is_slices_ = false;
+  std::string slice_plane_;
+  float slice_position_ = -1;
+  std::vector<int> slice_nodes_;
 
   // physics
   bool isElastic_;
