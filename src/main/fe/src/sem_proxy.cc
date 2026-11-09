@@ -49,6 +49,11 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   snap_time_interval_ = opt.snap_time_interval_;
   snap_folder_ = opt.snap_folder_;
 
+  is_slices_ = opt.is_slices_;
+  slice_plane_ = opt.slice_plane_;
+  slice_position_ = opt.slice_position_;
+  if (is_slices_) std::filesystem::create_directories(snap_folder_);
+
   if (is_snapshots_)
     std::filesystem::create_directories(snap_folder_);
   
@@ -336,6 +341,14 @@ void SEMproxy::run()
       metrics_.snapshot_write_seconds +=
           std::chrono::duration<double>(Clock::now() - startSnapshotTime)
               .count();
+    }
+
+    if (is_slices_ && indexTimeSample % snap_time_interval_ == 0)
+    {
+      const auto startSliceTime = Clock::now();
+      saveSlice(indexTimeSample);
+      metrics_.snapshot_write_seconds +=
+          std::chrono::duration<double>(Clock::now() - startSliceTime).count();
     }
 
     if (indexTimeSample % 50 == 0)
@@ -721,4 +734,41 @@ void SEMproxy::saveSnapshot(int timestep)
   // Compter uniquement les fichiers sauvegardés pendant cette exécution.
   metrics_.snapshot_mb +=
       static_cast<double>(std::filesystem::file_size(path)) / 1e6;
+}
+
+
+void SEMproxy::saveSlice(int timestep)
+{
+  if (slice_nodes_.empty())
+  {
+    const int normal = slice_plane_ == "xy" ? 2 : (slice_plane_ == "xz" ? 1 : 0);
+    const float wanted = slice_position_ >= 0 ? slice_position_
+                                              : m_mesh->domainSize(normal) / 2;
+    float position = m_mesh->nodeCoord(0, normal);
+    for (int node = 1; node < m_mesh->getNumberOfNodes(); ++node)
+    {
+      const float c = m_mesh->nodeCoord(node, normal);
+      if (std::abs(c - wanted) < std::abs(position - wanted)) position = c;
+    }
+    const float tol = 1e-3f * m_mesh->getMinSpacing();
+    for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
+      if (std::abs(m_mesh->nodeCoord(node, normal) - position) <= tol)
+        slice_nodes_.push_back(node);
+  }
+
+  const auto path = std::filesystem::path(snap_folder_) /
+    ("snapshot_" + std::to_string(timestep) + ".bin");
+  std::ofstream output(path, std::ios::binary);
+  if (!output) throw std::runtime_error("Cannot open slice file: " + path.string());
+  for (int node : slice_nodes_)
+  {
+    const std::int32_t nodeId = node;
+    const float values[4] = {m_mesh->nodeCoord(node, 0), m_mesh->nodeCoord(node, 1),
+                             m_mesh->nodeCoord(node, 2), pnGlobal(node, i1)};
+    output.write(reinterpret_cast<const char*>(&nodeId), sizeof(nodeId));
+    output.write(reinterpret_cast<const char*>(values), sizeof(values));
+  }
+  output.close();
+  if (!output) throw std::runtime_error("Cannot write slice file: " + path.string());
+  metrics_.snapshot_mb += static_cast<double>(std::filesystem::file_size(path)) / 1e6;
 }

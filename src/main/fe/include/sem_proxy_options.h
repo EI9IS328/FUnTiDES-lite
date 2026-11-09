@@ -33,6 +33,9 @@ class SemProxyOptions
   bool is_snapshots_ = false;
   int snap_time_interval_ = 50;
   std::string snap_folder_ = ".";
+   bool is_slices_ = false;
+  std::string slice_plane_ = "xy";
+  float slice_position_ = -1;
   std::string recepteur_file_ = "";
   
   void validate() const
@@ -109,7 +112,13 @@ class SemProxyOptions
         "snap-time-interval", "Steps between snapshot writes (ad-hoc) or field analyses (in-situ)",
         cxxopts::value<int>(o.snap_time_interval_))(
         "snap-folder", "Directory for snapshot files",
-        cxxopts::value<std::string>(o.snap_folder_))(
+        cxxopts::value<std::string>(o.snap_folder_))(        
+        "is-slices", "Save 2D slices instead of full snapshots",
+        cxxopts::value<bool>(o.is_slices_))(
+        "slice-plane", "Slice plane: xy | xz | yz",
+        cxxopts::value<std::string>(o.slice_plane_))(
+        "slice-position", "Plane position (negative: domain middle)",
+        cxxopts::value<float>(o.slice_position_))(
         "recepteur", "File containing receiver positions",
         cxxopts::value<std::string>(o.recepteur_file_));
   }

@@ -101,6 +101,7 @@ class SEMproxy
   float find_cfl_dt(float cfl_factor);
 
   void saveSnapshot(int timestep);
+  void saveSlice(int timestep);
 
  private:
   SemProxyMetrics metrics_;
@@ -125,6 +126,12 @@ class SEMproxy
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  // slices
+  bool is_slices_ = false;
+  std::string slice_plane_;
+  float slice_position_ = -1;
+  std::vector<int> slice_nodes_;
 
   // physics
   bool isElastic_;
