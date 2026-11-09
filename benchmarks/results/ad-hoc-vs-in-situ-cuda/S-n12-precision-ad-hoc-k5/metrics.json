@@ -1,0 +1,42 @@
+{
+  "simulation": {
+    "outputs": "snapshots",
+    "sample_count": 1499,
+    "total_seconds": 0.509366961,
+    "compute_seconds": 0.14617961500000043,
+    "snapshot_write_seconds": 0.24005872800000008,
+    "sismogram_write_seconds": 0,
+    "snapshot_mb": 93.75,
+    "sismogram_mb": 0
+  },
+  "ad_hoc": {
+    "statistics": {
+      "snapshots": {
+        "read_seconds": 0.017798786011553602,
+        "analysis_seconds": 0.025253046060242923
+      },
+      "sismograms": {
+        "read_seconds": null,
+        "analysis_seconds": null
+      },
+      "output_file": {
+        "write_seconds": 0.0009976219989766832,
+        "size_mb": 0.110251
+      }
+    },
+    "visualization": {
+      "snapshots": {
+        "read_seconds": null,
+        "preparation_seconds": null,
+        "render_seconds": null
+      },
+      "sismograms": {
+        "read_seconds": null,
+        "preparation_seconds": null,
+        "render_seconds": null
+      }
+    }
+  },
+  "in_situ": null,
+  "extrema_comparison": null
+}

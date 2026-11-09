@@ -2,7 +2,7 @@
   "executable": "../build/bin/semproxy",
   "receivers": "../receivers.txt",
   "size": 50,
-  "threads": [1, 2, 3, 4, 6, 8],
+  "threads": [1, 2, 3, 4, 6],
   "repetitions": 5,
   "parameters": {
     "order": 2,

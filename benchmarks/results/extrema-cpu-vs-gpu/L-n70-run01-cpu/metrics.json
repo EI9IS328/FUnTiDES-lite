@@ -1,0 +1,29 @@
+{
+  "simulation": {
+    "outputs": "snapshots",
+    "sample_count": 1499,
+    "total_seconds": 2.2346780260000001,
+    "compute_seconds": 1.7287165120000167,
+    "snapshot_write_seconds": 0,
+    "sismogram_write_seconds": 0,
+    "snapshot_mb": 0,
+    "sismogram_mb": 0
+  },
+  "ad_hoc": {
+    "statistics": {
+      "snapshots": {"read_seconds": null, "analysis_seconds": null},
+      "sismograms": {"read_seconds": null, "analysis_seconds": null},
+      "output_file": {"write_seconds": null, "size_mb": null}
+    },
+    "visualization": {
+      "snapshots": {"read_seconds": null, "preparation_seconds": null, "render_seconds": null},
+      "sismograms": {"read_seconds": null, "preparation_seconds": null, "render_seconds": null}
+    }
+  },
+  "in_situ": {
+    "snapshots": {"analysis_seconds": 0.35333773200000013},
+    "sismograms": {"analysis_seconds": 0},
+    "output_file": {"write_seconds": 0.00048726799999999974, "size_mb": 0.029028000000000002}
+  },
+  "extrema_comparison": {"backend": "cpu", "execution_space": "Cuda", "calls": 75, "prepare_seconds": 0.10760574699999999, "compute_seconds": 0.19771861199999999, "result_seconds": 0, "total_seconds": 0.30533785399999985, "input_bytes": 840966300, "result_bytes": 0}
+}
