@@ -1,0 +1,43 @@
+{
+  "snapshots": null,
+  "sismograms": {
+    "per_receiver": [
+      {
+        "receiver_index": 0,
+        "sample_count": 1499,
+        "minimum_pressure": -0.17934894561767578,
+        "maximum_pressure": 0.08232194185256958,
+        "maximum_absolute_pressure": 0.17934894561767578,
+        "mean_pressure": -0.00019511334167652395,
+        "pressure_variance": 0.0012851793803908538
+      },
+      {
+        "receiver_index": 1,
+        "sample_count": 1499,
+        "minimum_pressure": -0.060857683420181274,
+        "maximum_pressure": 0.029124351218342781,
+        "maximum_absolute_pressure": 0.060857683420181274,
+        "mean_pressure": 2.0663694312594697e-05,
+        "pressure_variance": 0.0002380468133172046
+      },
+      {
+        "receiver_index": 2,
+        "sample_count": 1499,
+        "minimum_pressure": -0.032294344156980515,
+        "maximum_pressure": 0.023216253146529198,
+        "maximum_absolute_pressure": 0.032294344156980515,
+        "mean_pressure": 0.00086712900409947294,
+        "pressure_variance": 9.0557016919427252e-05
+      },
+      {
+        "receiver_index": 3,
+        "sample_count": 1499,
+        "minimum_pressure": -0.037979282438755035,
+        "maximum_pressure": 0.031972408294677734,
+        "maximum_absolute_pressure": 0.037979282438755035,
+        "mean_pressure": 5.3442823349946796e-05,
+        "pressure_variance": 0.00011668244939016679
+      }
+    ]
+  }
+}
