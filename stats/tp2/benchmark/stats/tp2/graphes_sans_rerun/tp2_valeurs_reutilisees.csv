@@ -1,0 +1,8 @@
+indicateur,valeur,unite,provenance
+CPU + sismos ad-hoc (workflow existant),,s,NON DISPONIBLE
+GPU in-situ (Kokkos reduce),0.088,s,README TP2
+GPU + CPU (hostcopy),0.177,s,README TP2
+CPU UVM direct,0.57,s,README TP2
+GPU + sismos cuFFT (workflow existant),,s,NON DISPONIBLE
+Débit cudaMemcpy GPU->CPU,11.3677219,Go/s,README TP2 public (valeurs intégrées au script)
+Débit applicatif GPU seul (non cudaMemcpy),32.7040615,Go/s,README TP2 public (valeurs intégrées au script)

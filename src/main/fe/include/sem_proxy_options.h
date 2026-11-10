@@ -1,11 +1,12 @@
 #pragma once
-
 #include <cxxopts.hpp>
 #include <stdexcept>
 #include <string>
+#include "compression_config.hpp"
 
 class SemProxyOptions
 {
+
  public:
   // Defaults
   int order = 2;
@@ -13,6 +14,20 @@ class SemProxyOptions
   float lx = 2000.f, ly = 2000.f, lz = 2000.f;
   float srcx = 1010.f, srcy = 1010.f, srcz = 1010.f;
   float rcvx = 1410.f, rcvy = 1010.f, rcvz = 1010.f;
+  //sismos: fichier d'entrée des récepteurs et CSV de sortie
+  std::string rcv_file = "";
+  std::string fft_file = "";
+  std::string stats_file = "";
+  // In-situ statistics mode: cpu | gpu | hostcopy
+  std::string stats_mode = "cpu";
+  // TP3 in-situ processing: one option per part ("none" = disabled)
+  std::string insitu_viz = "none";       // part 1: in-situ visualization
+  std::string insitu_compress = "none";  // part 2: compression
+  std::string insitu_extra = "none";     // part 3: other processing
+  std::string compress_bounds = "snapshot";  // snapshot | global
+  float       compress_amax   = 0.f;         // borne fixe si bounds == global
+  int stats_interval = 0;
+  std::string sismo_file = "sismos.csv";
   std::string implem = "makutu";  // makutu|shiva
   std::string method = "sem";     // sem|dg
   std::string mesh = "cartesian";
@@ -26,7 +41,9 @@ class SemProxyOptions
   // Boolean to tell if the model is charged on nodes or on element
   bool isModelOnNodes = false;
   bool isElastic = false;
-
+  bool is_snapshots = false;
+  int snap_time_interval = 50;
+  std::string snap_folder = "../data";
   void validate() const
   {
     if (order < 1) throw std::runtime_error("order must be >= 1");
@@ -34,8 +51,17 @@ class SemProxyOptions
       throw std::runtime_error("ex/ey/ez must be > 0");
     if (lx <= 0 || ly <= 0 || lz <= 0)
       throw std::runtime_error("lx/ly/lz must be > 0");
+    if (is_snapshots && snap_time_interval <= 0)
+      throw std::runtime_error("snap-time-interval must be > 0");
+      CompressConfig cc; std::string err;
+    if (!parse_compress(insitu_compress, cc, err)) throw std::runtime_error(err);
+    if (compress_bounds != "snapshot" && compress_bounds != "global")
+      throw std::runtime_error("compress-bounds must be snapshot|global");
+    if (compress_bounds == "global" && compress_amax <= 0.f)
+      throw std::runtime_error("compress-amax must be > 0 with global bounds");
+    if (cc.enabled && !is_snapshots)
+      throw std::runtime_error("insitu-compress requires --is-snapshots");
   }
-
   // Bind CLI flags to this instance (no --help here)
   static void bind_cli(cxxopts::Options& opts, SemProxyOptions& o)
   {
@@ -71,6 +97,39 @@ class SemProxyOptions
         "Boolean to tell if the model is charged on nodes (true) or on element "
         "(false)",
         cxxopts::value<bool>(o.isModelOnNodes))(
-        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic));
-  }
+        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic))(
+        "rcv-file", "Input file with receiver positions (one x,y,z per line)",
+        cxxopts::value<std::string>(o.rcv_file))(
+        "sismo-file", "Output CSV file for the sismos (default sismos.csv)",
+        cxxopts::value<std::string>(o.sismo_file))(
+        "is-snapshots", "Save pressure snapshots (binary)",
+        cxxopts::value<bool>(o.is_snapshots))(
+        "snap-time-interval", "Number of time steps between two snapshots",
+        cxxopts::value<int>(o.snap_time_interval))
+        ("snap-folder", "Output folder for snapshots",
+        cxxopts::value<std::string>(o.snap_folder))
+        ("stats-interval",
+        "Number of time steps between two in-situ statistics (0 = disabled)",
+        cxxopts::value<int>(o.stats_interval))
+        ("stats-file",
+        "Output CSV file for the in-situ statistics",
+        cxxopts::value<std::string>(o.stats_file))
+        ("stats-mode",
+        "In-situ stats mode: cpu|gpu|hostcopy (default cpu)",
+        cxxopts::value<std::string>(o.stats_mode))
+        ("fft-file",
+        "Output CSV file for the in-situ cuFFT spectra",
+        cxxopts::value<std::string>(o.fft_file))
+        ("insitu-viz", "In-situ visualization mode (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_viz))(
+        "insitu-compress", "In-situ compression mode (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_compress))(
+        "insitu-extra", "Other in-situ processing (none = disabled)",
+        cxxopts::value<std::string>(o.insitu_extra))
+        ("compress-bounds", "Quantization bounds: snapshot|global",
+          cxxopts::value<std::string>(o.compress_bounds))
+         ("compress-amax", "Fixed max |p| used when compress-bounds=global",
+          cxxopts::value<float>(o.compress_amax));
+
+ }  
 };

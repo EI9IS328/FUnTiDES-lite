@@ -1,25 +1,37 @@
+#include <Kokkos_Core.hpp>
+#include <chrono>
 //************************************************************************
 //   proxy application v.0.0.1
 //
 //  semproxy.cpp: the main interface of  proxy application
 //
 //************************************************************************
-
 #include "sem_proxy.h"
-
 #include <cartesian_struct_builder.h>
 #include <cartesian_unstruct_builder.h>
 #include <sem_solver_acoustic.h>
 #include <source_and_receiver_utils.h>
-
 #include <cxxopts.hpp>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <variant>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+#include <limits>
+
+
+#ifdef SEMPROXY_ENABLE_CUFFT
+void computeSismoFFTcuFFT(const std::vector<float>& signals,
+                          int nReceivers,
+                          int nSamples,
+                          float dt,
+                          const std::string& fftFile);
+#endif
 
 using namespace SourceAndReceiverUtils;
-
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
   const int order = opt.order;
@@ -29,7 +41,6 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   nb_nodes_[0] = opt.ex * order + 1;
   nb_nodes_[1] = opt.ey * order + 1;
   nb_nodes_[2] = opt.ez * order + 1;
-
   const float spongex = opt.boundaries_size;
   const float spongey = opt.boundaries_size;
   const float spongez = opt.boundaries_size;
@@ -37,20 +48,48 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   src_coord_[0] = opt.srcx;
   src_coord_[1] = opt.srcy;
   src_coord_[2] = opt.srcz;
-
   domain_size_[0] = opt.lx;
   domain_size_[1] = opt.ly;
   domain_size_[2] = opt.lz;
-
   rcv_coord_[0] = opt.rcvx;
   rcv_coord_[1] = opt.rcvy;
   rcv_coord_[2] = opt.rcvz;
+    // sismos : liste des recepteurs
+  if (opt.rcv_file.empty())
+    rcv_coords_.push_back(rcv_coord_);  // pas de fichier : ancien recepteur unique
+  else
+    rcv_coords_ = readReceivers(opt.rcv_file);
+  sismo_file_ = opt.sismo_file;
+  fft_file_ = opt.fft_file;
+  stats_interval_ = opt.stats_interval;
+    if (!opt.stats_file.empty())
+  {
+    stats_out_.open(opt.stats_file);
+    if (!stats_out_)
+      throw std::runtime_error("Cannot open stats file: " + opt.stats_file);
+    stats_out_ << std::setprecision(9);
+    stats_out_ << "step,min,max,mean,variance,time_ms,mode,copy_ms,compute_ms,bytes\n";
+  }
+  
+  stats_mode_ = opt.stats_mode;
+  if (stats_mode_ != "cpu" && stats_mode_ != "gpu" && stats_mode_ != "hostcopy")
+    throw std::runtime_error("Unknown --stats-mode: " + stats_mode_);
+  // TP3 in-situ processing modes (each owner validates its own values later)
+  insitu_viz_ = opt.insitu_viz;
+  insitu_compress_ = opt.insitu_compress;
+  insitu_extra_ = opt.insitu_extra;
+  // one streaming accumulator per receiver (rcv_coords_ is already filled here)
+  if (stats_interval_ > 0)
+    sismo_stats_.assign(rcv_coords_.size(), StreamStats());
 
+  std::cout << "Number of receivers is " << rcv_coords_.size() << std::endl;
   bool isModelOnNodes = opt.isModelOnNodes;
   isElastic_ = opt.isElastic;
+  is_snapshots_ = opt.is_snapshots;
+  snap_time_interval_ = opt.snap_time_interval;
+  snap_folder_ = opt.snap_folder;
   cout << boolalpha;
   bool isElastic = isElastic_;
-
   const SolverFactory::methodType methodType = getMethod(opt.method);
   const SolverFactory::implemType implemType = getImplem(opt.implem);
   const SolverFactory::meshType meshType = getMesh(opt.mesh);
@@ -58,14 +97,12 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
       isModelOnNodes ? SolverFactory::modelLocationType::OnNodes
                      : SolverFactory::modelLocationType::OnElements;
   const SolverFactory::physicType physicType = SolverFactory::physicType::Acoustic;
-
   float lx = domain_size_[0];
   float ly = domain_size_[1];
   float lz = domain_size_[2];
   int ex = nb_elements_[0];
   int ey = nb_elements_[1];
   int ez = nb_elements_[2];
-
   if (meshType == SolverFactory::Struct)
   {
     switch (order)
@@ -104,7 +141,6 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   {
     throw std::runtime_error("Incorrect mesh type (SEMproxy ctor.)");
   }
-
   // time parameters
   if (opt.autodt)
   {
@@ -117,14 +153,11 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   }
   timemax_ = opt.timemax;
   num_sample_ = timemax_ / dt_;
-
   m_solver = SolverFactory::createSolver(methodType, implemType, meshType,
                                          modelLocation, physicType, order);
   m_solver->computeFEInit(*m_mesh, sponge_size, opt.surface_sponge,
                           opt.taper_delta);
-
   initFiniteElem();
-
   std::cout << "Number of node is " << m_mesh->getNumberOfNodes() << std::endl;
   std::cout << "Number of element is " << m_mesh->getNumberOfElements()
             << std::endl;
@@ -137,94 +170,188 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   std::cout << "Order of approximation will be " << order << std::endl;
   std::cout << "Time step is " << dt_ << "s" << std::endl;
   std::cout << "Simulated time is " << timemax_ << "s" << std::endl;
-
 }
-
 void SEMproxy::run()
 {
-  time_point<system_clock> startComputeTime, startOutputTime, totalComputeTime,
-      totalOutputTime;
-
+  time_point<system_clock> startComputeTime, startOutputTime, startSaveTime,
+      totalComputeTime, totalOutputTime, totalSaveTime;
   SEMsolverDataAcoustic solverData(i1, i2, myRHSTerm, pnGlobal, rhsElement,
                                    rhsWeights);
-
   for (int indexTimeSample = 0; indexTimeSample < num_sample_;
        indexTimeSample++)
   {
     startComputeTime = system_clock::now();
     m_solver->computeOneStep(dt_, indexTimeSample, solverData);
     totalComputeTime += system_clock::now() - startComputeTime;
-
     startOutputTime = system_clock::now();
-
     if (indexTimeSample % 50 == 0)
     {
       m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
                                      pnGlobal, "pnGlobal");
     }
-
-    // Save pressure at receiver
+    // Save pressure at each receiver
     const int order = m_mesh->getOrder();
-
-    float varnp1 = 0.0;
-    for (int i = 0; i < order + 1; i++)
+    // sismos : meme calcul qu'avant, repete pour chaque recepteur r
+    for (int r = 0; r < (int)rcv_coords_.size(); r++)
     {
-      for (int j = 0; j < order + 1; j++)
+      float varnp1 = 0.0;
+      for (int i = 0; i < order + 1; i++)
       {
-        for (int k = 0; k < order + 1; k++)
+        for (int j = 0; j < order + 1; j++)
         {
-          int nodeIdx = m_mesh->globalNodeIndex(rhsElementRcv[0], i, j, k);
-          int globalNodeOnElement =
-              i + j * (order + 1) + k * (order + 1) * (order + 1);
-          varnp1 +=
-              pnGlobal(nodeIdx, i2) * rhsWeightsRcv(0, globalNodeOnElement);
+          for (int k = 0; k < order + 1; k++)
+          {
+            // noeud (i,j,k) de la maille du recepteur r
+            int nodeIdx = m_mesh->globalNodeIndex(rhsElementRcv[r], i, j, k);
+            int globalNodeOnElement =
+                i + j * (order + 1) + k * (order + 1) * (order + 1);
+            // pression du noeud x poids d'interpolation du recepteur r
+            varnp1 += pnGlobal(nodeIdx, i2) *
+                      rhsWeightsRcv(r, globalNodeOnElement);
+          }
         }
       }
+      // row r = seismogram of receiver r, column = time step
+      pnAtReceiver(r, indexTimeSample) = varnp1;
+      // update at every time step: the statistics must cover the whole signal
+      if (stats_interval_ > 0) sismo_stats_[r].add(varnp1);
     }
 
-    pnAtReceiver(0, indexTimeSample) = varnp1;
-
+          
+      if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)         
+    {
+      startSaveTime = system_clock::now();
+      saveSnapshot(indexTimeSample);
+      totalSaveTime += system_clock::now() - startSaveTime;
+    }
+    // statistiques in situ : apres computeOneStep, i1 contient le champ le plus recent
+    if (stats_interval_ > 0 && indexTimeSample % stats_interval_ == 0)
+      {
+       if (stats_mode_ == "gpu")
+        computePressureStatistics(i1, indexTimeSample);
+      else if (stats_mode_ == "hostcopy")
+        computePressureStatisticsHostCopy(i1, indexTimeSample);
+      else
+        computePressureStatisticsCPU(i1, indexTimeSample);
+     }
+     // TP3: single entry point of the in-situ processing. At this point,
+    // column i1 holds the newest field. A false return means a clean stop.
+    if (!runInSituProcessing(indexTimeSample)) break;
     swap(i1, i2);
-
     auto tmp = solverData.m_i1;
     solverData.m_i1 = solverData.m_i2;
     solverData.m_i2 = tmp;
-
     totalOutputTime += system_clock::now() - startOutputTime;
   }
+  #ifdef SEMPROXY_ENABLE_CUFFT
+  if (!fft_file_.empty())
+  {
+    const int nReceivers =
+        static_cast<int>(rcv_coords_.size());
 
+    std::vector<float> signals(
+        static_cast<std::size_t>(nReceivers) *
+        static_cast<std::size_t>(num_sample_));
+
+    for (int r = 0; r < nReceivers; ++r)
+    {
+      for (int t = 0; t < num_sample_; ++t)
+      {
+        signals[
+            static_cast<std::size_t>(r) * num_sample_ + t] =
+            pnAtReceiver(r, t);
+      }
+    }
+
+    computeSismoFFTcuFFT(
+        signals,
+        nReceivers,
+        num_sample_,
+        dt_,
+        fft_file_);
+  }
+  #endif
   float kerneltime_ms = time_point_cast<microseconds>(totalComputeTime)
                             .time_since_epoch()
                             .count();
   float outputtime_ms =
       time_point_cast<microseconds>(totalOutputTime).time_since_epoch().count();
-
   cout << "------------------------------------------------ " << endl;
   cout << "\n---- Elapsed Kernel Time : " << kerneltime_ms / 1E6 << " seconds."
        << endl;
   cout << "---- Elapsed Output Time : " << outputtime_ms / 1E6 << " seconds."
-       << endl;
+       << endl;    
+    // final in-situ statistics of each seismogram
+  if (stats_interval_ > 0)
+    for (size_t r = 0; r < sismo_stats_.size(); r++)
+      cout << "[In-situ sismo] rcv=" << r << " n=" << sismo_stats_[r].n
+           << " min=" << sismo_stats_[r].minVal
+           << " max=" << sismo_stats_[r].maxVal
+           << " moyenne=" << sismo_stats_[r].mean
+           << " variance=" << sismo_stats_[r].variance() << endl;
+    cout << "---- Elapsed Stats Time : " << stats_total_ms_ / 1E3
+         << " seconds (" << stats_count_ << " calls)." << endl;
+    
   cout << "------------------------------------------------ " << endl;
+  // Save all receiver seismograms to CSV
+  if (!sismo_file_.empty())
+  {
+    startSaveTime = system_clock::now();
+    bool sismoSaved = false;
+    {
+      std::ofstream sismoFile(sismo_file_);
+      if (!sismoFile)
+      {
+        std::cerr << "Error: cannot open sismo file: "
+                  << sismo_file_ << std::endl;
+      }
+      else
+      {
+        sismoFile << "time";
+        for (int r = 0; r < (int)rcv_coords_.size(); r++)
+        {
+          sismoFile << ",receiver_" << r;
+        }
+        sismoFile << '\n';
+        sismoFile << std::setprecision(9);
+        for (int t = 0; t < num_sample_; t++)
+        {
+          sismoFile << t * dt_;
+          for (int r = 0; r < (int)rcv_coords_.size(); r++)
+          {
+            sismoFile << "," << pnAtReceiver(r, t);
+          }
+          sismoFile << '\n';
+        }
+        sismoSaved = true;
+      }
+    }
+    totalSaveTime += system_clock::now() - startSaveTime;
+    if (sismoSaved)
+      std::cout << "Seismograms saved to " << sismo_file_ << std::endl;
+  }
+  float savetime_ms =
+      time_point_cast<microseconds>(totalSaveTime).time_since_epoch().count();
+  cout << "---- Elapsed Save Time : " << savetime_ms / 1E6 << " seconds."
+       << endl;
 }
-
 // Initialize arrays
 void SEMproxy::init_arrays()
 {
   cout << "Allocate host memory for source and pressure values ..." << endl;
-
   rhsElement = allocateVector<vectorInt>(myNumberOfRHS, "rhsElement");
   rhsWeights = allocateArray2D<arrayReal>(
       myNumberOfRHS, m_mesh->getNumberOfPointsPerElement(), "RHSWeight");
   myRHSTerm = allocateArray2D<arrayReal>(myNumberOfRHS, num_sample_, "RHSTerm");
   pnGlobal =
       allocateArray2D<arrayReal>(m_mesh->getNumberOfNodes(), 2, "pnGlobal");
-  pnAtReceiver = allocateArray2D<arrayReal>(1, num_sample_, "pnAtReceiver");
+  const int nRcv = rcv_coords_.size();
+  pnAtReceiver = allocateArray2D<arrayReal>(nRcv, num_sample_, "pnAtReceiver");
   // Receiver
-  rhsElementRcv = allocateVector<vectorInt>(1, "rhsElementRcv");
+  rhsElementRcv = allocateVector<vectorInt>(nRcv, "rhsElementRcv");
   rhsWeightsRcv = allocateArray2D<arrayReal>(
-      1, m_mesh->getNumberOfPointsPerElement(), "RHSWeightRcv");
+      nRcv, m_mesh->getNumberOfPointsPerElement(), "RHSWeightRcv");
 }
-
 // Initialize sources
 void SEMproxy::init_source()
 {
@@ -236,22 +363,17 @@ void SEMproxy::init_source()
   int ex = nb_elements_[0];
   int ey = nb_elements_[1];
   int ez = nb_elements_[2];
-
   int lx = domain_size_[0];
   int ly = domain_size_[1];
   int lz = domain_size_[2];
-
   // Get source element index
-
   int source_index = floor((src_coord_[0] * ex) / lx) +
                      floor((src_coord_[1] * ey) / ly) * ex +
                      floor((src_coord_[2] * ez) / lz) * ey * ex;
-
   for (int i = 0; i < 1; i++)
   {
     rhsElement[i] = source_index;
   }
-
   // Get coordinates of the corners of the sourc element
   float cornerCoords[8][3];
   int I = 0;
@@ -270,7 +392,6 @@ void SEMproxy::init_source()
       }
     }
   }
-
   // initialize source term
   vector<float> sourceTerm =
       myUtils.computeSourceTerm(num_sample_, dt_, f0, sourceOrder);
@@ -280,14 +401,11 @@ void SEMproxy::init_source()
     if (j % 100 == 0)
       cout << "Sample " << j << "\t: sourceTerm = " << sourceTerm[j] << endl;
   }
-
   // get element number of source term
   myElementSource = rhsElement[0];
   cout << "Element number for the source location: " << myElementSource << endl
        << endl;
-
   int order = m_mesh->getOrder();
-
   switch (order)
   {
     case 1:
@@ -305,87 +423,348 @@ void SEMproxy::init_source()
     default:
       throw std::runtime_error("Unsupported order: " + std::to_string(order));
   }
-
-  // Receiver computation
-  int receiver_index = floor((rcv_coord_[0] * ex) / lx) +
-                       floor((rcv_coord_[1] * ey) / ly) * ex +
-                       floor((rcv_coord_[2] * ez) / lz) * ey * ex;
-
-  for (int i = 0; i < 1; i++)
+  // Receivers computation : meme travail qu'avant, mais pour CHAQUE recepteur
+  const int nPts = m_mesh->getNumberOfPointsPerElement();
+  // ComputeRHSWeights ecrit toujours dans la ligne 0 du tableau qu'on lui
+  // donne : on lui donne un tableau temporaire d'1 ligne, puis on recopie
+  arrayReal tmpWeights = allocateArray2D<arrayReal>(1, nPts, "tmpRcvWeights");
+  for (int r = 0; r < (int)rcv_coords_.size(); r++)
   {
-    rhsElementRcv[i] = receiver_index;
-  }
-
-  // Get coordinates of the corners of the receiver element
-  float cornerCoordsRcv[8][3];
-  I = 0;
-  for (int k : nodes_corner)
-  {
-    for (int j : nodes_corner)
+    // 1. maille qui contient le recepteur r
+    int receiver_index = floor((rcv_coords_[r][0] * ex) / lx) +
+                         floor((rcv_coords_[r][1] * ey) / ly) * ex +
+                         floor((rcv_coords_[r][2] * ez) / lz) * ey * ex;
+    rhsElementRcv[r] = receiver_index;
+    cout << "Receiver " << r << " is in element " << receiver_index << endl;
+    // 2. coordonnees des 8 coins de cette maille
+    float cornerCoordsRcv[8][3];
+    I = 0;
+    for (int k : nodes_corner)
     {
-      for (int i : nodes_corner)
+      for (int j : nodes_corner)
       {
-        int nodeIdx = m_mesh->globalNodeIndex(rhsElementRcv[0], i, j, k);
-        cornerCoordsRcv[I][0] = m_mesh->nodeCoord(nodeIdx, 0);
-        cornerCoordsRcv[I][2] = m_mesh->nodeCoord(nodeIdx, 2);
-        cornerCoordsRcv[I][1] = m_mesh->nodeCoord(nodeIdx, 1);
-        I++;
+        for (int i : nodes_corner)
+        {
+          int nodeIdx = m_mesh->globalNodeIndex(rhsElementRcv[r], i, j, k);
+          cornerCoordsRcv[I][0] = m_mesh->nodeCoord(nodeIdx, 0);
+          cornerCoordsRcv[I][2] = m_mesh->nodeCoord(nodeIdx, 2);
+          cornerCoordsRcv[I][1] = m_mesh->nodeCoord(nodeIdx, 1);
+          I++;
+        }
       }
     }
-  }
-
-  switch (order)
-  {
-    case 1:
-      SourceAndReceiverUtils::ComputeRHSWeights<1>(cornerCoordsRcv, rcv_coord_,
-                                                   rhsWeightsRcv);
-      break;
-    case 2:
-      SourceAndReceiverUtils::ComputeRHSWeights<2>(cornerCoordsRcv, rcv_coord_,
-                                                   rhsWeightsRcv);
-      break;
-    case 3:
-      SourceAndReceiverUtils::ComputeRHSWeights<3>(cornerCoordsRcv, rcv_coord_,
-                                                   rhsWeightsRcv);
-      break;
-    default:
-      throw std::runtime_error("Unsupported order: " + std::to_string(order));
+    // 3. poids d'interpolation (dans le tableau temporaire)
+    switch (order)
+    {
+      case 1:
+        SourceAndReceiverUtils::ComputeRHSWeights<1>(
+            cornerCoordsRcv, rcv_coords_[r], tmpWeights);
+        break;
+      case 2:
+        SourceAndReceiverUtils::ComputeRHSWeights<2>(
+            cornerCoordsRcv, rcv_coords_[r], tmpWeights);
+        break;
+      case 3:
+        SourceAndReceiverUtils::ComputeRHSWeights<3>(
+            cornerCoordsRcv, rcv_coords_[r], tmpWeights);
+        break;
+      default:
+        throw std::runtime_error("Unsupported order: " +
+                                 std::to_string(order));
+    }
+    // 4. on range les poids dans la ligne r du vrai tableau
+    for (int i = 0; i < nPts; i++) rhsWeightsRcv(r, i) = tmpWeights(0, i);
   }
 }
-
 SolverFactory::implemType SEMproxy::getImplem(string implemArg)
 {
   if (implemArg == "makutu") return SolverFactory::MAKUTU;
   if (implemArg == "shiva") return SolverFactory::SHIVA;
-
   throw std::invalid_argument(
       "Implentation type does not follow any valid type.");
 }
-
 SolverFactory::meshType SEMproxy::getMesh(string meshArg)
 {
   if (meshArg == "cartesian") return SolverFactory::Struct;
   if (meshArg == "ucartesian") return SolverFactory::Unstruct;
-
   std::cout << "Mesh type found is " << meshArg << std::endl;
   throw std::invalid_argument("Mesh type does not follow any valid type.");
 }
-
 SolverFactory::methodType SEMproxy::getMethod(string methodArg)
 {
   if (methodArg == "sem") return SolverFactory::SEM;
   if (methodArg == "dg") return SolverFactory::DG;
-
   throw std::invalid_argument("Method type does not follow any valid type.");
 }
-
 float SEMproxy::find_cfl_dt(float cfl_factor)
 {
   float sqrtDim3 = 1.73;  // to change for 2d
   float min_spacing = m_mesh->getMinSpacing();
   float v_max = m_mesh->getMaxSpeed();
-
   float dt = cfl_factor * min_spacing / (sqrtDim3 * v_max);
-
   return dt;
+}
+void SEMproxy::saveSnapshot(int timestep)
+{
+  const int nbNodes = m_mesh->getNumberOfNodes();
+  std::filesystem::create_directories(snap_folder_);
+  char filename[256];
+  snprintf(filename, sizeof(filename), "%s/snapshot_it_%06d.csv",
+           snap_folder_.c_str(), timestep);
+  std::ofstream file(filename);
+  if (!file.is_open())
+    throw std::runtime_error("Impossible d'ouvrir le fichier snapshot CSV.");
+  file << "x,y,z,pressure\n";
+  file << std::setprecision(9);
+  for (int n = 0; n < nbNodes; ++n)
+  {
+    file << m_mesh->nodeCoord(n, 0) << ','
+         << m_mesh->nodeCoord(n, 1) << ','
+         << m_mesh->nodeCoord(n, 2) << ','
+         << pnGlobal(n, i2) << '\n';
+  }
+  if (!file)
+    throw std::runtime_error("Erreur pendant l'ecriture du snapshot CSV.");
+}
+// sismos : lit le fichier des recepteurs.
+// Une ligne = un recepteur "x,y,z" (virgules, espaces ou ';' acceptes).
+// Les lignes vides, les commentaires '#' et un eventuel en-tete texte
+// sont ignores.
+std::vector<std::array<float, 3>> SEMproxy::readReceivers(
+    const std::string& filename)
+{
+  std::ifstream in(filename);
+  if (!in) throw std::runtime_error("Cannot open receivers file: " + filename);
+  std::vector<std::array<float, 3>> rcvs;
+  std::string line;
+  while (std::getline(in, line))
+  {
+    // 1. on enleve le commentaire eventuel (tout ce qui suit '#')
+    auto hash = line.find('#');
+    if (hash != std::string::npos) line.erase(hash);
+    // 2. on remplace les separateurs par des espaces
+    //    ('\r' : fin de ligne d'un fichier cree sous Windows)
+    for (char& ch : line)
+      if (ch == ',' || ch == ';' || ch == '\r') ch = ' ';
+    // 3. on essaie de lire 3 nombres ; si la ligne est vide ou si c'est
+    //    un en-tete texte, la lecture echoue et on passe a la suivante
+    std::istringstream iss(line);
+    std::array<float, 3> c;
+    if (iss >> c[0] >> c[1] >> c[2]) rcvs.push_back(c);
+  }
+  if (rcvs.empty())
+    throw std::runtime_error("No receiver found in file: " + filename);
+  return rcvs;
+}
+void SEMproxy::computePressureStatistics(int column, int step)
+{
+  const int nbNodes = m_mesh->getNumberOfNodes();
+
+  if (nbNodes <= 0)
+    throw std::runtime_error("Cannot compute statistics on an empty field.");
+  
+  Kokkos::fence();
+
+  const auto start = std::chrono::steady_clock::now();
+
+  auto pressure = pnGlobal;
+
+  float minPressure = std::numeric_limits<float>::max();
+  float maxPressure = std::numeric_limits<float>::lowest();
+  double sumPressure = 0.0;
+
+  Kokkos::parallel_reduce(
+      "PressureMin",
+      nbNodes,
+      KOKKOS_LAMBDA(const int n, float& localMin) {
+        const float value = pressure(n, column);
+        if (value < localMin)
+          localMin = value;
+      },
+      Kokkos::Min<float>(minPressure));
+
+  Kokkos::parallel_reduce(
+      "PressureMax",
+      nbNodes,
+      KOKKOS_LAMBDA(const int n, float& localMax) {
+        const float value = pressure(n, column);
+        if (value > localMax)
+          localMax = value;
+      },
+      Kokkos::Max<float>(maxPressure));
+
+  Kokkos::parallel_reduce(
+      "PressureSum",
+      nbNodes,
+      KOKKOS_LAMBDA(const int n, double& localSum) {
+        localSum += static_cast<double>(pressure(n, column));
+      },
+      sumPressure);
+
+  const double meanPressure = sumPressure / nbNodes;
+  double variancePressure = 0.0;
+
+  Kokkos::parallel_reduce(
+      "PressureVariance",
+      nbNodes,
+      KOKKOS_LAMBDA(const int n, double& localVariance) {
+        const double difference =
+            static_cast<double>(pressure(n, column)) - meanPressure;
+        localVariance += difference * difference;
+      },
+      variancePressure);
+
+  variancePressure /= nbNodes;
+
+  Kokkos::fence();
+
+  const double elapsedMs =
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - start)
+          .count();
+
+  recordStats(step, "gpu", minPressure, maxPressure, meanPressure,
+              variancePressure, 0.0, elapsedMs, elapsedMs,
+              2 * sizeof(float) + 2 * sizeof(double));
+
+  std::cout << "[In-situ Kokkos] pas=" << step
+            << " min=" << minPressure
+            << " max=" << maxPressure
+            << " moyenne=" << meanPressure
+            << " variance=" << variancePressure
+            << " temps_ms=" << elapsedMs << '\n';
+}
+// Statistiques in situ du champ de pression, version CPU, une seule passe.
+// column : colonne de pnGlobal a analyser (celle qui vient d'etre calculee)
+// step   : numero du pas de temps (pour l'affichage uniquement)
+void SEMproxy::computePressureStatisticsCPU(int column, int step)
+{
+  const int nbNodes = m_mesh->getNumberOfNodes();
+  if (nbNodes <= 0)
+    throw std::runtime_error("Cannot compute statistics on an empty field.");
+
+  Kokkos::fence();  // make sure previous solver kernels are done before timing
+  const auto start = std::chrono::steady_clock::now();
+
+  double minP = pnGlobal(0, column);
+  double maxP = minP;
+  double mean = 0.0;  // moyenne courante
+  double m2 = 0.0;    // cumul des carres des ecarts a la moyenne courante
+
+  for (int n = 0; n < nbNodes; n++)
+  {
+    const double x = pnGlobal(n, column);
+    if (x < minP) minP = x;
+    if (x > maxP) maxP = x;
+    // Welford : mise a jour incrementale
+    const double delta = x - mean;
+    mean += delta / (n + 1);
+    m2 += delta * (x - mean);
+  }
+  const double variance = m2 / nbNodes;  // variance de population
+
+  const double elapsedMs =
+      std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - start)
+          .count();
+  recordStats(step, "cpu", minP, maxP, mean, variance, 0.0, elapsedMs,
+              elapsedMs, 0);
+
+  std::cout << "[In-situ CPU] pas=" << step << " min=" << minP
+            << " max=" << maxP << " moyenne=" << mean
+            << " variance=" << variance << " temps_ms=" << elapsedMs << '\n';
+}
+
+// In-situ statistics, host version: explicit GPU->host copy of one column,
+// then a single-pass CPU loop (Welford). Copy and compute are timed separately.
+// column : column of pnGlobal to analyse (the one just computed)
+// step   : time step number (display only)
+void SEMproxy::computePressureStatisticsHostCopy(int column, int step)
+{
+  const int nbNodes = m_mesh->getNumberOfNodes();
+  if (nbNodes <= 0)
+    throw std::runtime_error("Cannot compute statistics on an empty field.");
+
+  // Host buffer, allocated outside the timed region
+  Kokkos::View<float*, Layout, Kokkos::HostSpace> hostCol("hostCol", nbNodes);
+  // The column is contiguous because Layout is LayoutLeft with CUDA
+  auto col = Kokkos::subview(pnGlobal, Kokkos::ALL, column);
+
+  Kokkos::fence();  // make sure the solver kernels are done before timing
+  const auto t0 = std::chrono::steady_clock::now();
+  Kokkos::deep_copy(hostCol, col);  // the GPU -> host transfer
+  const auto t1 = std::chrono::steady_clock::now();
+
+  // Single-pass statistics on the host copy
+  double minP = hostCol(0);
+  double maxP = minP;
+  double mean = 0.0;  // running mean
+  double m2 = 0.0;    // sum of squared deviations from the running mean
+
+  for (int n = 0; n < nbNodes; n++)
+  {
+    const double x = hostCol(n);
+    if (x < minP) minP = x;
+    if (x > maxP) maxP = x;
+    // Welford: incremental update
+    const double delta = x - mean;
+    mean += delta / (n + 1);
+    m2 += delta * (x - mean);
+  }
+  const double variance = m2 / nbNodes;
+
+  const auto t2 = std::chrono::steady_clock::now();
+
+  const double copyMs =
+      std::chrono::duration<double, std::milli>(t1 - t0).count();
+  const double computeMs =
+      std::chrono::duration<double, std::milli>(t2 - t1).count();
+  const std::size_t bytes = static_cast<std::size_t>(nbNodes) * sizeof(float);
+  
+  recordStats(step, "hostcopy", minP, maxP, mean, variance, copyMs,
+              computeMs, copyMs + computeMs, bytes);
+  
+  std::cout << "[In-situ HostCopy] step=" << step << " min=" << minP
+            << " max=" << maxP << " mean=" << mean
+            << " variance=" << variance << " copy_ms=" << copyMs
+            << " compute_ms=" << computeMs << " bytes=" << bytes << '\n';
+}
+
+void SEMproxy::recordStats(int step, const char* mode, double minP,
+                           double maxP, double mean, double variance,
+                           double copyMs, double computeMs, double totalMs,
+                           std::size_t bytes)
+{
+  stats_total_ms_ += totalMs;
+  stats_count_++;
+
+  if (stats_out_.is_open())
+    stats_out_ << step << ',' << minP << ',' << maxP << ',' << mean << ','
+               << variance << ',' << totalMs << ',' << mode << ',' << copyMs
+               << ',' << computeMs << ',' << bytes << '\n';
+}
+
+// Single entry point of the TP3 in-situ processing (see sem_proxy.h).
+// Each part adds its own code in its own block below, so the time loop in
+// run() does not have to change again.
+bool SEMproxy::runInSituProcessing(int step)
+{
+  (void)step;  // unused until the parts are implemented
+
+  // Part 1: in-situ visualization
+  if (insitu_viz_ != "none")
+  {
+  }
+
+  // Part 2: compression
+  if (insitu_compress_ != "none")
+  {
+  }
+
+  // Part 3: other processing (steering, driven outputs, accumulated maps)
+  if (insitu_extra_ != "none")
+  {
+  }
+
+  return true;  // returning false would request a clean stop
 }
